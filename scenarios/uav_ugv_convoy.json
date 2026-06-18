@@ -1,0 +1,73 @@
+{
+  "name": "uav_ugv_convoy_prelim",
+  "description": "Joint UAV/UGV mission with GPS spoofing, command injection, and link jamming.",
+  "duration_s": 150,
+  "step_s": 1,
+  "seed": 20260618,
+  "assets": [
+    {
+      "id": "uav-01",
+      "kind": "UAV",
+      "start": [0, 0, 80],
+      "waypoints": [
+        [180, 0, 80],
+        [360, 140, 95],
+        [620, 140, 95]
+      ],
+      "nominal_speed_mps": 22
+    },
+    {
+      "id": "ugv-01",
+      "kind": "UGV",
+      "start": [0, -20, 0],
+      "waypoints": [
+        [90, -20, 0],
+        [190, 60, 0],
+        [340, 60, 0]
+      ],
+      "nominal_speed_mps": 8
+    }
+  ],
+  "attacks": [
+    {
+      "id": "atk-gps-uav-01",
+      "asset_id": "uav-01",
+      "kind": "gps_spoof",
+      "start_s": 35,
+      "end_s": 70,
+      "params": {
+        "drift_mps": [2.8, -1.6, 0.15]
+      }
+    },
+    {
+      "id": "atk-cmd-ugv-01",
+      "asset_id": "ugv-01",
+      "kind": "command_injection",
+      "start_s": 62,
+      "end_s": 92,
+      "params": {
+        "target": [160, -130, 0]
+      }
+    },
+    {
+      "id": "atk-link-uav-01",
+      "asset_id": "uav-01",
+      "kind": "link_jam",
+      "start_s": 105,
+      "end_s": 132,
+      "params": {
+        "drop_probability": 0.75
+      }
+    }
+  ],
+  "defense": {
+    "gps_jump_threshold_m": 40,
+    "route_deviation_threshold_m": 60,
+    "command_deviation_threshold_m": 45,
+    "link_loss_threshold_s": 5,
+    "quarantine_score_threshold": 2
+  },
+  "metric": {
+    "detection_grace_s": 8
+  }
+}

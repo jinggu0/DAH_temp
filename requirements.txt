@@ -1,0 +1,2 @@
+# Runtime is intentionally stdlib-only for the preliminary submission harness.
+# Add simulator adapters here when ROS2/MAVLink/Gazebo integration is introduced.

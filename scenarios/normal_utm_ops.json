@@ -1,0 +1,113 @@
+{
+  "name": "normal_uas_utm_ops_stage_1",
+  "duration_s": 180,
+  "step_s": 1,
+  "conflict_distance_m": 35,
+  "assets": [
+    {
+      "id": "uav-alpha",
+      "callsign": "SMU-A1",
+      "start": [0, 0, 60],
+      "cruise_speed_mps": 14,
+      "min_altitude_m": 40,
+      "max_altitude_m": 120,
+      "battery_capacity_wh": 420
+    },
+    {
+      "id": "uav-bravo",
+      "callsign": "SMU-B1",
+      "start": [40, -120, 70],
+      "cruise_speed_mps": 12,
+      "min_altitude_m": 40,
+      "max_altitude_m": 120,
+      "battery_capacity_wh": 390
+    },
+    {
+      "id": "uav-charlie",
+      "callsign": "SMU-C1",
+      "start": [-80, 80, 65],
+      "cruise_speed_mps": 10,
+      "min_altitude_m": 40,
+      "max_altitude_m": 120,
+      "battery_capacity_wh": 360
+    }
+  ],
+  "zones": [
+    {
+      "id": "training-box",
+      "kind": "operating_area",
+      "x_min": -250,
+      "x_max": 420,
+      "y_min": -220,
+      "y_max": 260,
+      "min_altitude_m": 30,
+      "max_altitude_m": 140,
+      "label": "Approved low-altitude training airspace"
+    },
+    {
+      "id": "nfz-hospital",
+      "kind": "no_fly_zone",
+      "x_min": 130,
+      "x_max": 210,
+      "y_min": -30,
+      "y_max": 60,
+      "min_altitude_m": 0,
+      "max_altitude_m": 160,
+      "label": "Hospital emergency airspace"
+    },
+    {
+      "id": "altitude-cap-north",
+      "kind": "restricted_altitude",
+      "x_min": -220,
+      "x_max": 40,
+      "y_min": 140,
+      "y_max": 240,
+      "min_altitude_m": 95,
+      "max_altitude_m": 160,
+      "label": "Northern altitude cap"
+    }
+  ],
+  "missions": [
+    {
+      "id": "mission-alpha-survey",
+      "asset_id": "uav-alpha",
+      "requested_start_s": 5,
+      "requested_end_s": 120,
+      "nominal_speed_mps": 14,
+      "purpose": "facility perimeter survey",
+      "route": [
+        [0, 0, 60],
+        [80, 20, 65],
+        [120, 100, 70],
+        [20, 150, 70]
+      ]
+    },
+    {
+      "id": "mission-bravo-logistics",
+      "asset_id": "uav-bravo",
+      "requested_start_s": 15,
+      "requested_end_s": 150,
+      "nominal_speed_mps": 12,
+      "purpose": "normal logistics transfer",
+      "route": [
+        [40, -120, 70],
+        [90, -80, 75],
+        [120, -70, 75],
+        [250, -120, 80]
+      ]
+    },
+    {
+      "id": "mission-charlie-invalid-nfz",
+      "asset_id": "uav-charlie",
+      "requested_start_s": 30,
+      "requested_end_s": 160,
+      "nominal_speed_mps": 10,
+      "purpose": "validation sample expected to be rejected",
+      "route": [
+        [-80, 80, 65],
+        [145, 20, 70],
+        [260, 40, 70]
+      ]
+    }
+  ]
+}
