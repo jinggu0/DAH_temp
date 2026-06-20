@@ -14,6 +14,7 @@ dependencies = []
 dah-harness = "dah_harness.cli:main"
 uas-utm = "uas_utm.cli:main"
 uas-utm-service = "uas_utm_service.server:main"
+uas-utm-gateway = "uas_utm_gateway.udp_gateway:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -7,3 +7,22 @@ services:
       - ./output:/app/output
     environment:
       PYTHONUNBUFFERED: "1"
+
+  uas-utm-gateway:
+    build: .
+    command:
+      - uas-utm-gateway
+      - --listen-host
+      - 0.0.0.0
+      - --listen-port
+      - "14550"
+      - --scenario
+      - scenarios/korea_defense_uas_utm_ops.json
+      - --ingest-url
+      - http://uas-utm-service:8080/api/telemetry/ingest
+    ports:
+      - "14550:14550/udp"
+    depends_on:
+      - uas-utm-service
+    environment:
+      PYTHONUNBUFFERED: "1"
