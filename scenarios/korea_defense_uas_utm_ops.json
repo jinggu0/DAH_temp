@@ -1,0 +1,260 @@
+{
+  "name": "korea_defense_uas_utm_ops_stage_2",
+  "duration_s": 420,
+  "step_s": 2,
+  "conflict_distance_m": 90,
+  "origin_lat_e7": 376000000,
+  "origin_lon_e7": 1271000000,
+  "assets": [
+    {
+      "id": "rq101-corps-recon-01",
+      "callsign": "ROKA-RQ101-01",
+      "start": [-800, -180, 150],
+      "cruise_speed_mps": 34,
+      "min_altitude_m": 100,
+      "max_altitude_m": 4500,
+      "battery_capacity_wh": 24000,
+      "service_branch": "ROKA",
+      "platform_class": "corps_recon_uav",
+      "role": "corps ISR relay",
+      "datalink_profiles": ["mavlink_udp", "los_c_band"],
+      "sensor_payloads": ["eo", "ir", "gps_ins", "video_downlink"],
+      "endurance_s": 21600,
+      "system_id": 11,
+      "component_id": 1
+    },
+    {
+      "id": "muav-male-isr-01",
+      "callsign": "ROKAF-MUAV-01",
+      "start": [-1200, 500, 2200],
+      "cruise_speed_mps": 62,
+      "min_altitude_m": 1200,
+      "max_altitude_m": 12000,
+      "battery_capacity_wh": 140000,
+      "service_branch": "ROKAF",
+      "platform_class": "male_isr",
+      "role": "wide-area ISR",
+      "datalink_profiles": ["mavlink_udp", "satcom_ka", "los_c_band"],
+      "sensor_payloads": ["sar", "eo_ir", "gps_ins", "satcom_terminal"],
+      "endurance_s": 86400,
+      "system_id": 21,
+      "component_id": 1
+    },
+    {
+      "id": "small-dronebot-01",
+      "callsign": "ROKA-DBOT-01",
+      "start": [-120, -260, 85],
+      "cruise_speed_mps": 16,
+      "min_altitude_m": 50,
+      "max_altitude_m": 350,
+      "battery_capacity_wh": 850,
+      "service_branch": "ROKA",
+      "platform_class": "small_uas",
+      "role": "local reconnaissance",
+      "datalink_profiles": ["mavlink_udp", "lte_tactical"],
+      "sensor_payloads": ["eo", "gps", "video_downlink"],
+      "endurance_s": 2400,
+      "system_id": 31,
+      "component_id": 1
+    },
+    {
+      "id": "maritime-vtol-01",
+      "callsign": "ROKN-VTOL-01",
+      "start": [-520, 920, 120],
+      "cruise_speed_mps": 22,
+      "min_altitude_m": 80,
+      "max_altitude_m": 1200,
+      "battery_capacity_wh": 5200,
+      "service_branch": "ROKN",
+      "platform_class": "shipborne_vtol_uas",
+      "role": "coastal maritime surveillance",
+      "datalink_profiles": ["mavlink_udp", "ship_los"],
+      "sensor_payloads": ["eo_ir", "ais_receiver", "gps_ins"],
+      "endurance_s": 5400,
+      "system_id": 41,
+      "component_id": 1
+    }
+  ],
+  "c2_nodes": [
+    {
+      "id": "ground-control-east",
+      "kind": "ground_control_station",
+      "location": [-300, -100, 30],
+      "coverage_radius_m": 2600,
+      "supported_links": ["mavlink_udp", "los_c_band", "lte_tactical"],
+      "latency_ms": 45,
+      "authority": "ROKA UTM Cell"
+    },
+    {
+      "id": "air-ops-satcom",
+      "kind": "satcom_gateway",
+      "location": [0, 0, 0],
+      "coverage_radius_m": 25000,
+      "supported_links": ["satcom_ka"],
+      "latency_ms": 650,
+      "authority": "ROKAF Air Operations Center"
+    },
+    {
+      "id": "naval-control-coast",
+      "kind": "ship_control_station",
+      "location": [-480, 900, 15],
+      "coverage_radius_m": 1800,
+      "supported_links": ["ship_los", "mavlink_udp"],
+      "latency_ms": 70,
+      "authority": "ROKN Coastal Cell"
+    }
+  ],
+  "zones": [
+    {
+      "id": "joint-training-box",
+      "kind": "operating_area",
+      "x_min": -1800,
+      "x_max": 2400,
+      "y_min": -1400,
+      "y_max": 1800,
+      "min_altitude_m": 30,
+      "max_altitude_m": 12500,
+      "label": "Joint ROK normal UAS operating area",
+      "controlling_authority": "Joint UTM Cell"
+    },
+    {
+      "id": "civil-airport-buffer",
+      "kind": "no_fly_zone",
+      "x_min": 620,
+      "x_max": 1000,
+      "y_min": -240,
+      "y_max": 180,
+      "min_altitude_m": 0,
+      "max_altitude_m": 1800,
+      "label": "Civil airport approach protection buffer",
+      "controlling_authority": "Civil-Military Airspace Coordination"
+    },
+    {
+      "id": "low-level-artillery-box",
+      "kind": "restricted_altitude",
+      "x_min": -620,
+      "x_max": 280,
+      "y_min": 280,
+      "y_max": 760,
+      "min_altitude_m": 30,
+      "max_altitude_m": 500,
+      "label": "Low-level live-fire coordination area",
+      "controlling_authority": "Range Control"
+    },
+    {
+      "id": "maritime-lane-buffer",
+      "kind": "restricted_altitude",
+      "x_min": -900,
+      "x_max": -120,
+      "y_min": 1020,
+      "y_max": 1480,
+      "min_altitude_m": 30,
+      "max_altitude_m": 250,
+      "label": "Coastal transit lane altitude buffer",
+      "controlling_authority": "ROKN Coastal Cell"
+    }
+  ],
+  "missions": [
+    {
+      "id": "rq101-corps-route-survey",
+      "asset_id": "rq101-corps-recon-01",
+      "requested_start_s": 10,
+      "requested_end_s": 340,
+      "nominal_speed_mps": 34,
+      "purpose": "corps-level route reconnaissance baseline",
+      "mission_type": "ISR_ROUTE_SURVEY",
+      "priority": 2,
+      "control_mode": "auto",
+      "required_payloads": ["eo", "ir", "video_downlink"],
+      "required_link": "los_c_band",
+      "corridor_width_m": 120,
+      "route": [
+        [-800, -180, 150],
+        [-220, -120, 180],
+        [360, -280, 220],
+        [1180, -340, 260],
+        [1740, 220, 300]
+      ]
+    },
+    {
+      "id": "muav-wide-area-isr",
+      "asset_id": "muav-male-isr-01",
+      "requested_start_s": 0,
+      "requested_end_s": 420,
+      "nominal_speed_mps": 62,
+      "purpose": "wide-area SAR and EO/IR surveillance orbit",
+      "mission_type": "ISR_ORBIT",
+      "priority": 1,
+      "control_mode": "auto",
+      "required_payloads": ["sar", "eo_ir", "satcom_terminal"],
+      "required_link": "satcom_ka",
+      "corridor_width_m": 220,
+      "route": [
+        [-1200, 500, 2200],
+        [-300, 1040, 2400],
+        [900, 1180, 2400],
+        [1780, 760, 2400],
+        [420, 420, 2300]
+      ]
+    },
+    {
+      "id": "dronebot-local-recon",
+      "asset_id": "small-dronebot-01",
+      "requested_start_s": 30,
+      "requested_end_s": 210,
+      "nominal_speed_mps": 16,
+      "purpose": "local maneuver unit reconnaissance",
+      "mission_type": "LOCAL_RECON",
+      "priority": 2,
+      "control_mode": "assisted",
+      "required_payloads": ["eo", "video_downlink"],
+      "required_link": "lte_tactical",
+      "corridor_width_m": 45,
+      "route": [
+        [-120, -260, 85],
+        [80, -220, 95],
+        [300, -320, 100],
+        [520, -180, 105]
+      ]
+    },
+    {
+      "id": "naval-vtol-coastal-watch",
+      "asset_id": "maritime-vtol-01",
+      "requested_start_s": 20,
+      "requested_end_s": 260,
+      "nominal_speed_mps": 22,
+      "purpose": "coastal lane surveillance",
+      "mission_type": "MARITIME_SURVEILLANCE",
+      "priority": 2,
+      "control_mode": "auto",
+      "required_payloads": ["eo_ir", "ais_receiver"],
+      "required_link": "ship_los",
+      "corridor_width_m": 80,
+      "route": [
+        [-520, 920, 120],
+        [-620, 820, 180],
+        [-780, 760, 220],
+        [-1040, 860, 260]
+      ]
+    },
+    {
+      "id": "invalid-airport-buffer-sample",
+      "asset_id": "small-dronebot-01",
+      "requested_start_s": 230,
+      "requested_end_s": 360,
+      "nominal_speed_mps": 16,
+      "purpose": "validation sample expected to be rejected",
+      "mission_type": "VALIDATION",
+      "priority": 4,
+      "control_mode": "auto",
+      "required_payloads": ["eo"],
+      "required_link": "lte_tactical",
+      "corridor_width_m": 45,
+      "route": [
+        [300, -320, 100],
+        [720, -80, 130],
+        [1120, 40, 160]
+      ]
+    }
+  ]
+}
