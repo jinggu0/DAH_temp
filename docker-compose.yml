@@ -1,0 +1,9 @@
+services:
+  uas-utm-service:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./output:/app/output
+    environment:
+      PYTHONUNBUFFERED: "1"

@@ -7,4 +7,6 @@ RUN python -m pip install --no-cache-dir -e .
 
 RUN mkdir -p output
 
-CMD ["dah-harness", "--scenario", "scenarios/uav_ugv_convoy.json", "--output", "output/harness_summary.json"]
+EXPOSE 8080
+
+CMD ["uas-utm-service", "--host", "0.0.0.0", "--port", "8080", "--scenario", "scenarios/korea_defense_uas_utm_ops.json"]

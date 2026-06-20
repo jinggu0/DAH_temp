@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import time
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+from .protocol import envelope, protocol_profile
+from .state import ServiceState
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Serve the UAS/UTM virtual environment dashboard and API.")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--scenario", default="scenarios/korea_defense_uas_utm_ops.json")
+    args = parser.parse_args(argv)
+
+    state = ServiceState(Path(args.scenario))
+    handler_class = _make_handler(state)
+    server = ThreadingHTTPServer((args.host, args.port), handler_class)
+    print(f"UAS/UTM service listening on http://{args.host}:{args.port}")
+    print(f"scenario: {Path(args.scenario).resolve()}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
+    static_root = Path(__file__).resolve().parent / "static"
+
+    class UasUtmHandler(BaseHTTPRequestHandler):
+        server_version = "UasUtmService/0.2"
+
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query = parse_qs(parsed.query)
+            if path == "/api/health":
+                self._send_json(envelope(message_type="utm.health", payload={"ok": True, "scenario": state.scenario.name}))
+            elif path == "/api/protocol":
+                self._send_json(envelope(message_type="utm.protocol", payload=protocol_profile()))
+            elif path == "/api/scenario":
+                self._send_json(envelope(message_type="utm.scenario", payload=state.scenario_payload()))
+            elif path == "/api/summary":
+                self._send_json(envelope(message_type="utm.summary", payload=state.summary))
+            elif path == "/api/decisions":
+                self._send_json(envelope(message_type="utm.decisions", payload=state.decisions_payload()))
+            elif path == "/api/timeline":
+                self._send_json(envelope(message_type="utm.timeline", payload=state.timeline_payload()))
+            elif path == "/api/telemetry":
+                time_s = _int_query(query, "time_s")
+                self._send_json(envelope(message_type="utm.telemetry.snapshot", payload=state.telemetry_snapshot(time_s)))
+            elif path == "/api/live/snapshot":
+                time_s = _int_query(query, "time_s")
+                self._send_json(envelope(message_type="utm.telemetry.live", payload=state.live_snapshot(time_s)))
+            elif path == "/api/live/stream":
+                self._send_sse(query)
+            elif path == "/api/mavlink":
+                limit = _int_query(query, "limit") or 80
+                asset_id = query.get("asset_id", [None])[0]
+                self._send_json(
+                    envelope(
+                        message_type="utm.mavlink.messages",
+                        payload=state.mavlink_payload(asset_id=asset_id, limit=max(1, min(limit, 500))),
+                    )
+                )
+            elif path == "/" or path == "/index.html":
+                self._send_file(static_root / "index.html")
+            elif path.startswith("/static/"):
+                self._send_file(static_root / path.removeprefix("/static/"))
+            else:
+                self._send_json(
+                    envelope(message_type="utm.error", payload={"error": "not_found", "path": path}),
+                    status=HTTPStatus.NOT_FOUND,
+                )
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path != "/api/telemetry/ingest":
+                self._send_json(
+                    envelope(message_type="utm.error", payload={"error": "not_found", "path": parsed.path}),
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            try:
+                message = self._read_json_body()
+                payload = state.ingest_telemetry(message)
+            except ValueError as exc:
+                self._send_json(
+                    envelope(message_type="utm.telemetry.ingest", payload={"accepted": False, "error": str(exc)}),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self._send_json(envelope(message_type="utm.telemetry.ingest", payload=payload), status=HTTPStatus.ACCEPTED)
+
+        def log_message(self, format: str, *args: object) -> None:
+            print(f"{self.address_string()} - {format % args}")
+
+        def _read_json_body(self) -> dict:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0:
+                raise ValueError("request body is required")
+            body = self.rfile.read(content_length)
+            try:
+                value = json.loads(body.decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                raise ValueError("request body must be valid JSON") from exc
+            if not isinstance(value, dict):
+                raise ValueError("request body must be a JSON object")
+            return value
+
+        def _send_sse(self, query: dict[str, list[str]]) -> None:
+            interval_ms = max(100, min(_int_query(query, "interval_ms") or 1000, 10000))
+            max_events = max(1, min(_int_query(query, "max_events") or 120, 10000))
+            timeline = state.timeline or [0]
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            for index in range(max_events):
+                time_s = timeline[index % len(timeline)]
+                message = envelope(message_type="utm.telemetry.live", payload=state.live_snapshot(time_s))
+                data = json.dumps(message, ensure_ascii=False)
+                try:
+                    self.wfile.write(f"event: telemetry\ndata: {data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                time.sleep(interval_ms / 1000)
+            self.close_connection = True
+
+        def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+            body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_file(self, path: Path) -> None:
+            try:
+                resolved = path.resolve()
+                if static_root.resolve() not in resolved.parents and resolved != static_root.resolve():
+                    raise FileNotFoundError
+                body = resolved.read_bytes()
+            except OSError:
+                self._send_json(
+                    envelope(message_type="utm.error", payload={"error": "static_not_found"}),
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    return UasUtmHandler
+
+
+def _int_query(query: dict[str, list[str]], key: str) -> int | None:
+    raw_value = query.get(key, [None])[0]
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError:
+        return None
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

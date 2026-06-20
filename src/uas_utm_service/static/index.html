@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DAH UAS/UTM Live Service</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>DAH UAS/UTM Live Service</h1>
+        <p id="scenarioName">Loading scenario</p>
+      </div>
+      <nav class="status-strip" aria-label="service status">
+        <span id="serviceStatus">API</span>
+        <span id="clockLabel">T+0s</span>
+        <span id="linkRate">Link 0%</span>
+        <span id="modeLabel">Replay</span>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="map-surface" aria-label="airspace map">
+        <canvas id="airspaceCanvas" width="1100" height="720"></canvas>
+        <div class="timeline">
+          <button id="playButton" title="Play or pause replay">Play</button>
+          <button id="liveButton" title="Connect to live telemetry stream">Live</button>
+          <input id="timeSlider" type="range" min="0" max="1" value="0" step="1" aria-label="timeline">
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section>
+          <h2>Operations</h2>
+          <dl class="metrics">
+            <div><dt>Assets</dt><dd id="assetCount">0</dd></div>
+            <div><dt>Missions</dt><dd id="missionCount">0</dd></div>
+            <div><dt>Approved</dt><dd id="approvedCount">0</dd></div>
+            <div><dt>C2 Nodes</dt><dd id="c2Count">0</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h2>UTM Decisions</h2>
+          <ul id="decisionList" class="decision-list"></ul>
+        </section>
+
+        <section>
+          <h2>MAVLink Messages</h2>
+          <div id="mavlinkCounts" class="message-grid"></div>
+        </section>
+
+        <section>
+          <h2>Protocol Profile</h2>
+          <p id="protocolText" class="protocol-text">Loading protocol envelope</p>
+        </section>
+      </aside>
+    </main>
+
+    <section class="bottom-band">
+      <h2>Telemetry Snapshot</h2>
+      <div id="assetTable" class="asset-table"></div>
+    </section>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
