@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 PROFILE_NAME = "TTA-UAS-UTM-SIM"
-PROFILE_VERSION = "1.1"
+PROFILE_VERSION = "1.2"
 
 
 def envelope(
@@ -58,6 +58,12 @@ def protocol_profile() -> dict[str, Any]:
             "utm.telemetry.ingest",
             "utm.telemetry.live",
             "utm.mavlink.messages",
+            "utm.command.request",
+            "utm.command.approve",
+            "utm.command.reject",
+            "utm.mission_upload.request",
+            "utm.mission_upload.approve",
+            "utm.audit",
         ],
         "telemetry_ingest_payload": {
             "asset_id": "string, required",
@@ -72,12 +78,26 @@ def protocol_profile() -> dict[str, Any]:
             "link_profile": "string|null",
             "source": "external adapter id",
         },
+        "command_payload": {
+            "asset_id": "string, required",
+            "command_type": "hold_position|return_to_launch|set_mode|goto|land",
+            "params": "object",
+            "requested_by": "operator id",
+            "priority": "integer",
+            "safety": "commands are queued and never transmitted until approved",
+        },
+        "mission_upload_payload": {
+            "mission_id": "UTM-approved mission id",
+            "requested_by": "operator id",
+            "output": "MISSION_ITEM_INT list queued for gateway",
+        },
         "mavlink_mapping": {
             "heartbeat": "HEARTBEAT",
             "position": "GLOBAL_POSITION_INT",
             "status": "SYS_STATUS",
             "mission_state": "MISSION_CURRENT",
             "mission_plan": "MISSION_ITEM_INT",
+            "command": "COMMAND_LONG",
             "utm_position": "UTM_GLOBAL_POSITION",
         },
     }

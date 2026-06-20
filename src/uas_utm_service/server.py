@@ -38,7 +38,7 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
     static_root = Path(__file__).resolve().parent / "static"
 
     class UasUtmHandler(BaseHTTPRequestHandler):
-        server_version = "UasUtmService/0.2"
+        server_version = "UasUtmService/0.3"
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -73,6 +73,31 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                         payload=state.mavlink_payload(asset_id=asset_id, limit=max(1, min(limit, 500))),
                     )
                 )
+            elif path == "/api/commands":
+                self._send_json(envelope(message_type="utm.command.list", payload=state.commands_payload(_str_query(query, "status"))))
+            elif path == "/api/mission-uploads":
+                self._send_json(
+                    envelope(
+                        message_type="utm.mission_upload.list",
+                        payload=state.mission_uploads_payload(_str_query(query, "status")),
+                    )
+                )
+            elif path == "/api/gateway/commands":
+                self._send_json(
+                    envelope(
+                        message_type="utm.gateway.commands",
+                        payload=state.commands_payload(_str_query(query, "status") or "approved_for_gateway"),
+                    )
+                )
+            elif path == "/api/gateway/mission-uploads":
+                self._send_json(
+                    envelope(
+                        message_type="utm.gateway.mission_uploads",
+                        payload=state.mission_uploads_payload(_str_query(query, "status") or "approved_for_gateway"),
+                    )
+                )
+            elif path == "/api/audit":
+                self._send_json(envelope(message_type="utm.audit", payload=state.audit_payload(_int_query(query, "limit") or 100)))
             elif path == "/" or path == "/index.html":
                 self._send_file(static_root / "index.html")
             elif path.startswith("/static/"):
@@ -85,22 +110,32 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path != "/api/telemetry/ingest":
+            route_map = {
+                "/api/telemetry/ingest": ("utm.telemetry.ingest", state.ingest_telemetry, HTTPStatus.ACCEPTED),
+                "/api/commands/request": ("utm.command.request", state.request_command, HTTPStatus.ACCEPTED),
+                "/api/commands/approve": ("utm.command.approve", state.approve_command, HTTPStatus.OK),
+                "/api/commands/reject": ("utm.command.reject", state.reject_command, HTTPStatus.OK),
+                "/api/mission-uploads/request": ("utm.mission_upload.request", state.request_mission_upload, HTTPStatus.ACCEPTED),
+                "/api/mission-uploads/approve": ("utm.mission_upload.approve", state.approve_mission_upload, HTTPStatus.OK),
+            }
+            route = route_map.get(parsed.path)
+            if route is None:
                 self._send_json(
                     envelope(message_type="utm.error", payload={"error": "not_found", "path": parsed.path}),
                     status=HTTPStatus.NOT_FOUND,
                 )
                 return
+            message_type, handler, success_status = route
             try:
                 message = self._read_json_body()
-                payload = state.ingest_telemetry(message)
+                payload = handler(message)
             except ValueError as exc:
                 self._send_json(
-                    envelope(message_type="utm.telemetry.ingest", payload={"accepted": False, "error": str(exc)}),
+                    envelope(message_type=message_type, payload={"accepted": False, "error": str(exc)}),
                     status=HTTPStatus.BAD_REQUEST,
                 )
                 return
-            self._send_json(envelope(message_type="utm.telemetry.ingest", payload=payload), status=HTTPStatus.ACCEPTED)
+            self._send_json(envelope(message_type=message_type, payload=payload), status=success_status)
 
         def log_message(self, format: str, *args: object) -> None:
             print(f"{self.address_string()} - {format % args}")
@@ -178,6 +213,11 @@ def _int_query(query: dict[str, list[str]], key: str) -> int | None:
         return int(raw_value)
     except ValueError:
         return None
+
+
+def _str_query(query: dict[str, list[str]], key: str) -> str | None:
+    value = query.get(key, [None])[0]
+    return value if value else None
 
 
 if __name__ == "__main__":
