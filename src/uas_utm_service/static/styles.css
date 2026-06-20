@@ -163,6 +163,11 @@ dd {
   font-weight: 700;
 }
 
+#fusionMode {
+  font-size: 16px;
+  word-break: break-word;
+}
+
 .decision-list {
   display: flex;
   flex-direction: column;

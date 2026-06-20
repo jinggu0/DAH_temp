@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 PROFILE_NAME = "TTA-UAS-UTM-SIM"
-PROFILE_VERSION = "1.2"
+PROFILE_VERSION = "1.3"
 
 
 def envelope(
@@ -57,6 +57,8 @@ def protocol_profile() -> dict[str, Any]:
             "utm.telemetry.snapshot",
             "utm.telemetry.ingest",
             "utm.telemetry.live",
+            "utm.tracks",
+            "utm.operation_profile",
             "utm.mavlink.messages",
             "utm.command.request",
             "utm.command.approve",
@@ -77,6 +79,22 @@ def protocol_profile() -> dict[str, Any]:
             "c2_node_id": "string|null",
             "link_profile": "string|null",
             "source": "external adapter id",
+            "source_id": "stable source id for fusion",
+            "source_authority": "source owner or C2 authority",
+            "track_confidence": "0.0-1.0 optional source confidence",
+        },
+        "track_fusion_payload": {
+            "track_count": "integer",
+            "mode": "single_source|fused",
+            "tracks": [
+                {
+                    "asset_id": "string",
+                    "fused_position": "[x_m, y_m, z_m]",
+                    "confidence": "0.0-1.0",
+                    "primary_source_id": "simulation|mavlink-udp-adapter|...",
+                    "sources": "per-source samples with age/stale/authority",
+                }
+            ],
         },
         "command_payload": {
             "asset_id": "string, required",

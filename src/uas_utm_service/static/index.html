@@ -52,6 +52,19 @@
         </section>
 
         <section>
+          <h2>Track Fusion</h2>
+          <dl class="metrics">
+            <div><dt>Tracks</dt><dd id="trackCount">0</dd></div>
+            <div><dt>Mode</dt><dd id="fusionMode">-</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h2>Operation Domains</h2>
+          <ul id="domainList" class="decision-list"></ul>
+        </section>
+
+        <section>
           <h2>Protocol Profile</h2>
           <p id="protocolText" class="protocol-text">Loading protocol envelope</p>
         </section>
@@ -61,6 +74,11 @@
     <section class="bottom-band">
       <h2>Telemetry Snapshot</h2>
       <div id="assetTable" class="asset-table"></div>
+    </section>
+
+    <section class="bottom-band">
+      <h2>Fused Track Table</h2>
+      <div id="trackTable" class="asset-table"></div>
     </section>
 
     <script src="/static/app.js"></script>

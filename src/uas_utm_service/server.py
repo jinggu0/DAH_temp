@@ -50,6 +50,8 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(envelope(message_type="utm.protocol", payload=protocol_profile()))
             elif path == "/api/scenario":
                 self._send_json(envelope(message_type="utm.scenario", payload=state.scenario_payload()))
+            elif path == "/api/operation-profile":
+                self._send_json(envelope(message_type="utm.operation_profile", payload=state.operation_profile()))
             elif path == "/api/summary":
                 self._send_json(envelope(message_type="utm.summary", payload=state.summary))
             elif path == "/api/decisions":
@@ -62,6 +64,9 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             elif path == "/api/live/snapshot":
                 time_s = _int_query(query, "time_s")
                 self._send_json(envelope(message_type="utm.telemetry.live", payload=state.live_snapshot(time_s)))
+            elif path == "/api/tracks":
+                time_s = _int_query(query, "time_s")
+                self._send_json(envelope(message_type="utm.tracks", payload=state.tracks_payload(time_s)))
             elif path == "/api/live/stream":
                 self._send_sse(query)
             elif path == "/api/mavlink":

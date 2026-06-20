@@ -16,7 +16,7 @@ class UasUtmServiceTests(unittest.TestCase):
         message = envelope(message_type="utm.health", payload={"ok": True})
 
         self.assertEqual(message["protocol"], "TTA-UAS-UTM-SIM")
-        self.assertEqual(message["schema_version"], "1.2")
+        self.assertEqual(message["schema_version"], "1.3")
         self.assertEqual(message["message_type"], "utm.health")
         self.assertIn("timestamp_utc", message)
         self.assertEqual(message["payload"], {"ok": True})
@@ -36,6 +36,8 @@ class UasUtmServiceTests(unittest.TestCase):
 
         self.assertEqual(profile["transport"]["live_push"], "Server-Sent Events over HTTP")
         self.assertIn("utm.telemetry.ingest", profile["normal_operation_messages"])
+        self.assertIn("utm.tracks", profile["normal_operation_messages"])
+        self.assertIn("utm.operation_profile", profile["normal_operation_messages"])
         self.assertIn("utm.command.request", profile["normal_operation_messages"])
         self.assertEqual(profile["mavlink_mapping"]["position"], "GLOBAL_POSITION_INT")
         self.assertEqual(profile["mavlink_mapping"]["command"], "COMMAND_LONG")
@@ -60,6 +62,44 @@ class UasUtmServiceTests(unittest.TestCase):
         self.assertTrue(result["accepted"])
         self.assertEqual(snapshot["mode"], "hybrid")
         self.assertEqual(snapshot["external_frames"][0]["asset_id"], "external-uas-01")
+
+    def test_track_fusion_merges_simulation_and_external_sources(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        state.ingest_telemetry(
+            {
+                "payload": {
+                    "asset_id": "small-dronebot-01",
+                    "time_s": 120,
+                    "position": [205, -240, 99],
+                    "velocity_mps": [10, 0, 0],
+                    "status": "mavlink-live",
+                    "source": "mavlink-udp-adapter",
+                    "source_authority": "ROKA UTM Cell",
+                    "track_confidence": 0.94,
+                }
+            }
+        )
+        tracks = state.tracks_payload(120)
+        fused = next(track for track in tracks["tracks"] if track["asset_id"] == "small-dronebot-01")
+
+        self.assertEqual(tracks["mode"], "fused")
+        self.assertEqual(fused["primary_source_id"], "mavlink-udp-adapter")
+        self.assertEqual(fused["source_count"], 2)
+        self.assertGreaterEqual(fused["confidence"], 0.94)
+
+    def test_operation_profile_exposes_public_contractor_style_domains(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        profile = state.operation_profile()
+        domains = {row["domain"] for row in profile["domains"]}
+        roles = {row["role"] for row in profile["roles"]}
+
+        self.assertIn("platform", domains)
+        self.assertIn("mission_payload", domains)
+        self.assertIn("c2_ground_control", domains)
+        self.assertIn("datalink", domains)
+        self.assertIn("approver", roles)
 
     def test_command_request_requires_approval_before_gateway_dispatch(self) -> None:
         state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")

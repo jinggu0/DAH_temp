@@ -3,6 +3,8 @@ const state = {
   summary: null,
   decisions: [],
   timeline: [],
+  operationProfile: null,
+  tracks: null,
   tickIndex: 0,
   playing: false,
   live: false,
@@ -23,13 +25,14 @@ async function api(path) {
 }
 
 async function bootstrap() {
-  const [health, protocol, scenario, summary, decisions, timeline] = await Promise.all([
+  const [health, protocol, scenario, summary, decisions, timeline, operationProfile] = await Promise.all([
     api("/api/health"),
     api("/api/protocol"),
     api("/api/scenario"),
     api("/api/summary"),
     api("/api/decisions"),
     api("/api/timeline"),
+    api("/api/operation-profile"),
   ]);
   document.querySelector("#serviceStatus").textContent = health.payload.ok ? "API OK" : "API Error";
   document.querySelector("#protocolText").textContent =
@@ -38,10 +41,12 @@ async function bootstrap() {
   state.summary = summary.payload;
   state.decisions = decisions.payload;
   state.timeline = timeline.payload.ticks;
+  state.operationProfile = operationProfile.payload;
   slider.min = 0;
   slider.max = Math.max(0, state.timeline.length - 1);
   slider.value = 0;
   renderSummary();
+  renderOperationProfile();
   await loadSnapshot(0);
 }
 
@@ -75,8 +80,12 @@ function renderSummary() {
 async function loadSnapshot(index) {
   state.tickIndex = Math.max(0, Math.min(index, state.timeline.length - 1));
   const time = state.timeline[state.tickIndex] ?? 0;
-  const snapshot = await api(`/api/live/snapshot?time_s=${time}`);
+  const [snapshot, tracks] = await Promise.all([
+    api(`/api/live/snapshot?time_s=${time}`),
+    api(`/api/tracks?time_s=${time}`),
+  ]);
   applySnapshot(snapshot.payload);
+  applyTracks(tracks.payload);
   slider.value = state.tickIndex;
 }
 
@@ -86,6 +95,24 @@ function applySnapshot(snapshot) {
   document.querySelector("#modeLabel").textContent = state.live ? "Live" : "Replay";
   drawMap();
   renderAssetTable();
+}
+
+function applyTracks(tracks) {
+  state.tracks = tracks;
+  document.querySelector("#trackCount").textContent = tracks.track_count;
+  document.querySelector("#fusionMode").textContent = tracks.mode;
+  renderTrackTable();
+}
+
+function renderOperationProfile() {
+  const list = document.querySelector("#domainList");
+  list.innerHTML = "";
+  for (const domain of state.operationProfile.domains) {
+    const item = document.createElement("li");
+    item.textContent = domain.domain.replaceAll("_", " ");
+    item.title = domain.service_fields.join(", ");
+    list.appendChild(item);
+  }
 }
 
 function connectLive() {
@@ -98,6 +125,7 @@ function connectLive() {
   state.eventSource.addEventListener("telemetry", (event) => {
     const message = JSON.parse(event.data);
     applySnapshot(message.payload);
+    api(`/api/tracks?time_s=${message.payload.time_s}`).then((tracks) => applyTracks(tracks.payload));
     const index = state.timeline.indexOf(message.payload.time_s);
     if (index >= 0) {
       state.tickIndex = index;
@@ -261,6 +289,35 @@ function renderAssetTable() {
       </tbody>
     </table>`;
   document.querySelector("#assetTable").innerHTML = html;
+}
+
+function renderTrackTable() {
+  const rows = state.tracks?.tracks ?? [];
+  const html = `
+    <table>
+      <thead>
+        <tr>
+          <th>Track</th><th>Primary</th><th>Confidence</th><th>Authority</th><th>Position</th><th>Sources</th><th>Stale</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (track) => `
+          <tr>
+            <td>${track.asset_id}</td>
+            <td>${track.primary_source_id}</td>
+            <td>${Math.round(track.confidence * 100)}%</td>
+            <td>${track.authority ?? "-"}</td>
+            <td>${track.fused_position.map((v) => Number(v).toFixed(1)).join(", ")}</td>
+            <td>${track.source_count}</td>
+            <td>${track.stale ? "yes" : "no"}</td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
+  document.querySelector("#trackTable").innerHTML = html;
 }
 
 slider.addEventListener("input", () => {

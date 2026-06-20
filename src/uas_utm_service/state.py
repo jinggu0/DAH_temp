@@ -20,6 +20,29 @@ class ServiceState:
         self.command_queue: dict[str, dict[str, Any]] = {}
         self.mission_upload_queue: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict[str, Any]] = []
+        self.source_registry: dict[str, dict[str, Any]] = {
+            "simulation": {
+                "source_id": "simulation",
+                "source_type": "scenario_replay",
+                "authority": "Joint UTM Cell",
+                "domain": "operation_support",
+                "base_confidence": 0.82,
+            },
+            "mavlink-udp-adapter": {
+                "source_id": "mavlink-udp-adapter",
+                "source_type": "mavlink_gateway",
+                "authority": "C2 / Ground Control",
+                "domain": "datalink",
+                "base_confidence": 0.92,
+            },
+            "manual-operator": {
+                "source_id": "manual-operator",
+                "source_type": "operator_entry",
+                "authority": "C2 / Ground Control",
+                "domain": "operation_support",
+                "base_confidence": 0.55,
+            },
+        }
         self.reload()
 
     def reload(self) -> None:
@@ -65,6 +88,94 @@ class ServiceState:
         snapshot["mode"] = "hybrid" if external_frames else "simulation"
         return snapshot
 
+    def operation_profile(self) -> dict[str, Any]:
+        return {
+            "alignment_note": (
+                "Public Korean defense-contractor structures are modeled as generic platform, payload, C2, "
+                "datalink, and operation-support domains. This simulator does not copy non-public systems."
+            ),
+            "domains": [
+                {
+                    "domain": "platform",
+                    "service_fields": ["asset_id", "platform_class", "service_branch", "endurance_s"],
+                },
+                {
+                    "domain": "mission_payload",
+                    "service_fields": ["sensor_payloads", "required_payloads", "mission_type"],
+                },
+                {
+                    "domain": "c2_ground_control",
+                    "service_fields": ["c2_node_id", "authority", "operator", "approver"],
+                },
+                {
+                    "domain": "datalink",
+                    "service_fields": ["link_profile", "source_id", "mavlink_command", "mavlink_items"],
+                },
+                {
+                    "domain": "operation_support",
+                    "service_fields": ["audit_log", "track_confidence", "gateway_queue", "docker_profile"],
+                },
+            ],
+            "roles": [
+                {"role": "viewer", "can": ["read_scenario", "read_tracks", "read_audit"]},
+                {"role": "operator", "can": ["request_command", "request_mission_upload", "ingest_manual_telemetry"]},
+                {"role": "approver", "can": ["approve_command", "reject_command", "approve_mission_upload"]},
+                {"role": "gateway", "can": ["read_approved_commands", "read_approved_mission_uploads", "ingest_mavlink"]},
+                {"role": "admin", "can": ["operate_service", "configure_sources"]},
+            ],
+            "source_registry": list(self.source_registry.values()),
+        }
+
+    def tracks_payload(self, requested_time_s: int | None = None) -> dict[str, Any]:
+        time_s = self._nearest_time(requested_time_s)
+        frames = self.frames_by_time.get(time_s, [])
+        sources_by_asset: dict[str, list[dict[str, Any]]] = {}
+
+        for frame in frames:
+            source = self._source_sample_from_frame(frame, time_s)
+            sources_by_asset.setdefault(frame.asset_id, []).append(source)
+
+        with self._lock:
+            external_frames = list(self.external_frames.values())
+        for frame in external_frames:
+            source = self._source_sample_from_external(frame, time_s)
+            sources_by_asset.setdefault(source["asset_id"], []).append(source)
+
+        tracks = []
+        for asset_id, sources in sorted(sources_by_asset.items()):
+            sources.sort(key=lambda item: (item["stale"], -item["confidence"], item["source_id"]))
+            primary = sources[0]
+            asset = self._asset_metadata(asset_id)
+            confidence = min(1.0, primary["confidence"] + max(0, len(sources) - 1) * 0.03)
+            tracks.append(
+                {
+                    "asset_id": asset_id,
+                    "callsign": asset.get("callsign"),
+                    "platform_class": asset.get("platform_class", "external"),
+                    "service_branch": asset.get("service_branch", "external"),
+                    "status": primary["status"],
+                    "mission_id": primary.get("mission_id"),
+                    "c2_node_id": primary.get("c2_node_id"),
+                    "link_profile": primary.get("link_profile"),
+                    "fused_position": primary["position"],
+                    "fused_velocity_mps": primary["velocity_mps"],
+                    "heading_deg": primary["heading_deg"],
+                    "battery_wh": primary["battery_wh"],
+                    "confidence": round(confidence, 3),
+                    "source_count": len(sources),
+                    "stale": all(source["stale"] for source in sources),
+                    "primary_source_id": primary["source_id"],
+                    "authority": primary["authority"],
+                    "sources": sources,
+                }
+            )
+        return {
+            "time_s": time_s,
+            "track_count": len(tracks),
+            "mode": "fused" if any(track["source_count"] > 1 for track in tracks) else "single_source",
+            "tracks": tracks,
+        }
+
     def ingest_telemetry(self, message: dict[str, Any]) -> dict[str, Any]:
         payload = message.get("payload", message)
         if not isinstance(payload, dict):
@@ -88,6 +199,10 @@ class ServiceState:
             "c2_node_id": payload.get("c2_node_id"),
             "link_profile": payload.get("link_profile"),
             "source": str(payload.get("source", "external")),
+            "source_id": str(payload.get("source_id", payload.get("source", "external"))),
+            "source_type": str(payload.get("source_type", "telemetry_adapter")),
+            "source_authority": str(payload.get("source_authority", "External Adapter")),
+            "track_confidence": float(payload.get("track_confidence", 0.0)),
         }
         with self._lock:
             self.external_frames[asset_id] = normalized
@@ -220,6 +335,63 @@ class ServiceState:
         with self._lock:
             rows = self.audit_log[-limit:]
         return {"audit": rows, "limit": limit}
+
+    def _source_sample_from_frame(self, frame: TelemetryFrame, time_s: int) -> dict[str, Any]:
+        registry = self.source_registry["simulation"]
+        return {
+            "asset_id": frame.asset_id,
+            "source_id": registry["source_id"],
+            "source_type": registry["source_type"],
+            "domain": registry["domain"],
+            "authority": frame.c2_node_id or registry["authority"],
+            "time_s": frame.time_s,
+            "age_s": max(0, time_s - frame.time_s),
+            "stale": False,
+            "confidence": registry["base_confidence"] if frame.status == "active" else 0.5,
+            "position": list(frame.position),
+            "velocity_mps": list(frame.velocity_mps),
+            "heading_deg": frame.heading_deg,
+            "status": frame.status,
+            "mission_id": frame.mission_id,
+            "battery_wh": frame.battery_wh,
+            "c2_node_id": frame.c2_node_id,
+            "link_profile": frame.link_profile,
+        }
+
+    def _source_sample_from_external(self, frame: dict[str, Any], requested_time_s: int) -> dict[str, Any]:
+        source_id = str(frame.get("source_id") or frame.get("source") or "external")
+        registry = self.source_registry.get(source_id, {})
+        base_confidence = float(registry.get("base_confidence", 0.65))
+        explicit_confidence = float(frame.get("track_confidence") or 0.0)
+        frame_time_s = int(frame.get("time_s", requested_time_s))
+        age_s = abs(requested_time_s - frame_time_s)
+        stale = age_s > max(10, self.scenario.step_s * 3)
+        confidence = explicit_confidence if explicit_confidence > 0 else max(0.2, base_confidence - min(age_s, 60) * 0.01)
+        return {
+            "asset_id": str(frame["asset_id"]),
+            "source_id": source_id,
+            "source_type": str(frame.get("source_type") or registry.get("source_type", "external_adapter")),
+            "domain": str(registry.get("domain", "datalink")),
+            "authority": str(frame.get("source_authority") or registry.get("authority", "External Adapter")),
+            "time_s": frame_time_s,
+            "age_s": age_s,
+            "stale": stale,
+            "confidence": round(confidence, 3),
+            "position": list(frame["position"]),
+            "velocity_mps": list(frame.get("velocity_mps", [0.0, 0.0, 0.0])),
+            "heading_deg": float(frame.get("heading_deg", 0.0)),
+            "status": str(frame.get("status", "external")),
+            "mission_id": frame.get("mission_id"),
+            "battery_wh": float(frame.get("battery_wh", 0.0)),
+            "c2_node_id": frame.get("c2_node_id"),
+            "link_profile": frame.get("link_profile"),
+        }
+
+    def _asset_metadata(self, asset_id: str) -> dict[str, Any]:
+        for asset in self.scenario.assets:
+            if asset.id == asset_id:
+                return asdict(asset)
+        return {}
 
     def timeline_payload(self) -> dict[str, Any]:
         return {
