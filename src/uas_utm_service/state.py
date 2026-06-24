@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from uas_utm.mavlink_adapter import mission_to_mavlink_items
+from uas_utm_edge import EdgeRegistry
 from uas_utm.models import TelemetryFrame
 from uas_utm.simulator import load_scenario, run_environment, summarize_result
 
@@ -20,6 +21,7 @@ class ServiceState:
         self.command_queue: dict[str, dict[str, Any]] = {}
         self.mission_upload_queue: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict[str, Any]] = []
+        self.edge_registry = EdgeRegistry(self)
         self.source_registry: dict[str, dict[str, Any]] = {
             "simulation": {
                 "source_id": "simulation",
@@ -121,10 +123,38 @@ class ServiceState:
                 {"role": "operator", "can": ["request_command", "request_mission_upload", "ingest_manual_telemetry"]},
                 {"role": "approver", "can": ["approve_command", "reject_command", "approve_mission_upload"]},
                 {"role": "gateway", "can": ["read_approved_commands", "read_approved_mission_uploads", "ingest_mavlink"]},
+                {"role": "edge_gateway", "can": ["register_device", "send_heartbeat", "ingest_edge_telemetry", "poll_approved_work", "ack_work"]},
+                {"role": "maintainer", "can": ["read_device_health", "read_audit", "rotate_device_profile"]},
                 {"role": "admin", "can": ["operate_service", "configure_sources"]},
             ],
             "source_registry": list(self.source_registry.values()),
+            "edge_boundary": {
+                "purpose": "UAV/UGV edge devices communicate with UTM through approved telemetry and work queues.",
+                "safety": "Approved work is queued for a local safety interlock; this simulator does not drive real actuators.",
+                "device_types": ["uav_edge", "ugv_edge", "payload_edge", "c2_gateway", "test_harness"],
+            },
         }
+
+
+    def register_edge_device(self, message: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.register(message)
+
+    def heartbeat_edge_device(self, message: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.heartbeat(message)
+
+    def edge_devices_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.devices_payload()
+
+    def edge_work_payload(self, edge_id: str) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.work_payload(edge_id)
+
+    def ack_edge_work(self, message: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.acknowledge(message)
 
     def tracks_payload(self, requested_time_s: int | None = None) -> dict[str, Any]:
         time_s = self._nearest_time(requested_time_s)
@@ -496,3 +526,6 @@ def _command_to_mavlink(command_type: str, params: Any) -> dict[str, Any]:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+

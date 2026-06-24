@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 import unittest
@@ -16,7 +16,7 @@ class UasUtmServiceTests(unittest.TestCase):
         message = envelope(message_type="utm.health", payload={"ok": True})
 
         self.assertEqual(message["protocol"], "TTA-UAS-UTM-SIM")
-        self.assertEqual(message["schema_version"], "1.3")
+        self.assertEqual(message["schema_version"], "1.4")
         self.assertEqual(message["message_type"], "utm.health")
         self.assertIn("timestamp_utc", message)
         self.assertEqual(message["payload"], {"ok": True})
@@ -38,6 +38,8 @@ class UasUtmServiceTests(unittest.TestCase):
         self.assertIn("utm.telemetry.ingest", profile["normal_operation_messages"])
         self.assertIn("utm.tracks", profile["normal_operation_messages"])
         self.assertIn("utm.operation_profile", profile["normal_operation_messages"])
+        self.assertIn("utm.edge.device.register", profile["normal_operation_messages"])
+        self.assertIn("utm.edge.work", profile["normal_operation_messages"])
         self.assertIn("utm.command.request", profile["normal_operation_messages"])
         self.assertEqual(profile["mavlink_mapping"]["position"], "GLOBAL_POSITION_INT")
         self.assertEqual(profile["mavlink_mapping"]["command"], "COMMAND_LONG")
@@ -101,6 +103,54 @@ class UasUtmServiceTests(unittest.TestCase):
         self.assertIn("datalink", domains)
         self.assertIn("approver", roles)
 
+
+    def test_edge_device_registers_polls_work_and_acknowledges(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        device = state.register_edge_device(
+            {
+                "payload": {
+                    "edge_id": "edge-dronebot-01",
+                    "device_type": "uav_edge",
+                    "asset_ids": ["small-dronebot-01"],
+                    "authority": "ROKA UTM Cell",
+                    "capabilities": ["telemetry_ingest", "approved_work_poll", "ack_work"],
+                }
+            }
+        )
+        heartbeat = state.heartbeat_edge_device(
+            {
+                "payload": {
+                    "edge_id": "edge-dronebot-01",
+                    "status": "online",
+                    "cpu_load": 0.2,
+                    "battery_wh": 700,
+                    "link_quality": 0.95,
+                }
+            }
+        )
+        command = state.request_command(
+            {"payload": {"asset_id": "small-dronebot-01", "command_type": "hold_position"}}
+        )
+        approved = state.approve_command({"payload": {"command_id": command["command_id"], "approver": "lead"}})
+        work = state.edge_work_payload("edge-dronebot-01")
+        ack = state.ack_edge_work(
+            {
+                "payload": {
+                    "edge_id": "edge-dronebot-01",
+                    "object_type": "command",
+                    "object_id": approved["command_id"],
+                    "result": "received_by_edge",
+                }
+            }
+        )
+
+        self.assertEqual(device["egress_policy"], "approved_queue_only")
+        self.assertEqual(heartbeat["status"], "online")
+        self.assertEqual(len(work["commands"]), 1)
+        self.assertEqual(work["safety_interlock"], "local_edge_must_validate_before_actuation")
+        self.assertEqual(ack["object_type"], "command")
+
     def test_command_request_requires_approval_before_gateway_dispatch(self) -> None:
         state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
 
@@ -155,3 +205,5 @@ class UasUtmServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

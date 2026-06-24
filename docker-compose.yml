@@ -26,3 +26,40 @@ services:
       - uas-utm-service
     environment:
       PYTHONUNBUFFERED: "1"
+  uas-utm-edge-dronebot:
+    build: .
+    command:
+      - uas-utm-edge
+      - --service-url
+      - http://uas-utm-service:8080
+      - --edge-id
+      - edge-dronebot-01
+      - --device-type
+      - uav_edge
+      - --asset
+      - small-dronebot-01
+      - --authority
+      - ROKA UTM Cell
+      - --emit-sample-telemetry
+    depends_on:
+      - uas-utm-service
+    environment:
+      PYTHONUNBUFFERED: "1"
+  uas-utm-bidir-gateway:
+    build: .
+    command:
+      - uas-utm-bidir-gateway
+      - --listen-host
+      - 0.0.0.0
+      - --listen-port
+      - "14551"
+      - --scenario
+      - scenarios/korea_defense_uas_utm_ops.json
+      - --service-url
+      - http://uas-utm-service:8080
+    ports:
+      - "14551:14551/udp"
+    depends_on:
+      - uas-utm-service
+    environment:
+      PYTHONUNBUFFERED: "1"

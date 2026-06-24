@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -52,6 +52,8 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(envelope(message_type="utm.scenario", payload=state.scenario_payload()))
             elif path == "/api/operation-profile":
                 self._send_json(envelope(message_type="utm.operation_profile", payload=state.operation_profile()))
+            elif path == "/api/edge/devices":
+                self._send_json(envelope(message_type="utm.edge.devices", payload=state.edge_devices_payload()))
             elif path == "/api/summary":
                 self._send_json(envelope(message_type="utm.summary", payload=state.summary))
             elif path == "/api/decisions":
@@ -67,6 +69,15 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             elif path == "/api/tracks":
                 time_s = _int_query(query, "time_s")
                 self._send_json(envelope(message_type="utm.tracks", payload=state.tracks_payload(time_s)))
+            elif path == "/api/edge/work":
+                edge_id = _str_query(query, "edge_id")
+                if edge_id is None:
+                    self._send_json(envelope(message_type="utm.edge.work", payload={"accepted": False, "error": "edge_id is required"}), status=HTTPStatus.BAD_REQUEST)
+                else:
+                    try:
+                        self._send_json(envelope(message_type="utm.edge.work", payload=state.edge_work_payload(edge_id)))
+                    except ValueError as exc:
+                        self._send_json(envelope(message_type="utm.edge.work", payload={"accepted": False, "error": str(exc)}), status=HTTPStatus.BAD_REQUEST)
             elif path == "/api/live/stream":
                 self._send_sse(query)
             elif path == "/api/mavlink":
@@ -117,6 +128,9 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             route_map = {
                 "/api/telemetry/ingest": ("utm.telemetry.ingest", state.ingest_telemetry, HTTPStatus.ACCEPTED),
+                "/api/edge/devices/register": ("utm.edge.device.register", state.register_edge_device, HTTPStatus.ACCEPTED),
+                "/api/edge/devices/heartbeat": ("utm.edge.device.heartbeat", state.heartbeat_edge_device, HTTPStatus.ACCEPTED),
+                "/api/edge/work/ack": ("utm.edge.work.ack", state.ack_edge_work, HTTPStatus.OK),
                 "/api/commands/request": ("utm.command.request", state.request_command, HTTPStatus.ACCEPTED),
                 "/api/commands/approve": ("utm.command.approve", state.approve_command, HTTPStatus.OK),
                 "/api/commands/reject": ("utm.command.reject", state.reject_command, HTTPStatus.OK),
@@ -227,3 +241,4 @@ def _str_query(query: dict[str, list[str]], key: str) -> str | None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -14,6 +14,9 @@ MESSAGE_NAMES = {
     1: "SYS_STATUS",
     33: "GLOBAL_POSITION_INT",
     42: "MISSION_CURRENT",
+    73: "MISSION_ITEM_INT",
+    76: "COMMAND_LONG",
+    77: "COMMAND_ACK",
     340: "UTM_GLOBAL_POSITION",
 }
 
@@ -120,6 +123,8 @@ def _parse_payload(message_id: int, payload: bytes) -> dict[str, Any]:
         return _parse_global_position_int(payload)
     if message_id == 42:
         return _parse_mission_current(payload)
+    if message_id == 77:
+        return _parse_command_ack(payload)
     if message_id == 340:
         return _parse_utm_global_position(payload)
     return {"raw_payload_len": len(payload)}
@@ -190,3 +195,9 @@ def _parse_utm_global_position(payload: bytes) -> dict[str, Any]:
         "vy": vy,
         "vz": vz,
     }
+
+def _parse_command_ack(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 3:
+        raise ValueError("COMMAND_ACK payload too short")
+    command, result = struct.unpack_from("<HB", payload)
+    return {"command": command, "result": result}

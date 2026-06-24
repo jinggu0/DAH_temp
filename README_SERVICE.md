@@ -26,3 +26,23 @@ docker run --rm -p 8080:8080 dah-uas-utm-service
 ```bash
 docker compose up --build
 ```
+
+## Edge Device Agent
+
+Run a simulated external UAV/UGV edge device against the service:
+
+```powershell
+.\scripts\run_uas_utm_edge.ps1 -Once -EmitSampleTelemetry
+```
+
+The agent registers with `/api/edge/devices/register`, sends heartbeat, can ingest edge telemetry, and polls `/api/edge/work` for approved command/mission queues. It does not actuate real hardware.
+
+## Bidirectional MAVLink
+
+Run the bidirectional MAVLink gateway when an external UAV/UGV should both send telemetry and receive approved commands or mission uploads over UDP:
+
+```bash
+docker compose up --build uas-utm-service uas-utm-bidir-gateway
+```
+
+External devices should send MAVLink UDP to `udp://<host-ip>:14551`. The legacy `uas-utm-gateway` on `14550/udp` remains telemetry-ingest only.

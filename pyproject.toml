@@ -15,6 +15,8 @@ dah-harness = "dah_harness.cli:main"
 uas-utm = "uas_utm.cli:main"
 uas-utm-service = "uas_utm_service.server:main"
 uas-utm-gateway = "uas_utm_gateway.udp_gateway:main"
+uas-utm-bidir-gateway = "uas_utm_gateway.bidirectional_gateway:main"
+uas-utm-edge = "uas_utm_edge.agent:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -23,3 +25,4 @@ where = ["src"]
 dah_harness = ["py.typed"]
 uas_utm = ["py.typed"]
 uas_utm_service = ["static/*.html", "static/*.css", "static/*.js"]
+
