@@ -11,9 +11,24 @@ from uas_utm.mavlink_adapter import mission_to_mavlink_items
 from uas_utm_edge import EdgeRegistry
 from uas_utm.models import TelemetryFrame
 from uas_utm.simulator import load_scenario, run_environment, summarize_result
+from dah_harness.tactical_emulator import (
+    ALLOWED_FAULT_TYPES,
+    TacticalEmulatorRuntime,
+    fault_severity,
+    recommended_response,
+    tactical_alert_from_fault,
+)
+from dah_harness.protocol_monitor import (
+    AlertEvent,
+    LinkState,
+    MockMavlinkAdapter,
+    TacticalMessage,
+    command_from_queue,
+    protocol_monitor_snapshot,
+    telemetry_from_frame,
+)
 
 from .log_store import JsonlAuditStore, agent_observation
-
 
 class ServiceState:
     def __init__(self, scenario_path: Path, log_dir: Path | None = None):
@@ -24,6 +39,8 @@ class ServiceState:
         self.mission_upload_queue: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict[str, Any]] = []
         self.runtime_log: list[dict[str, Any]] = []
+        self.fault_events: list[dict[str, Any]] = []
+        self.tactical_emulator = TacticalEmulatorRuntime()
         self.audit_store = JsonlAuditStore(log_dir or Path("logs/uas_utm"))
         self.edge_registry = EdgeRegistry(self)
         self.source_registry: dict[str, dict[str, Any]] = {
@@ -160,6 +177,176 @@ class ServiceState:
         with self._lock:
             return self.edge_registry.acknowledge(message)
 
+    def dashboard_payload(self) -> dict[str, Any]:
+        edge_payload = self.edge_devices_payload()
+        chain = self.chain_payload()
+        alerts = self.alerts_payload(limit=20)
+        uav_devices = [item for item in edge_payload["edge_devices"] if "uav" in str(item.get("device_type", "")).lower()]
+        ugv_devices = [item for item in edge_payload["edge_devices"] if "ugv" in str(item.get("device_type", "")).lower()]
+        return {
+            "schema_version": "dah-gcs-dashboard.v1",
+            "title": "DAH UAS/UGV GCS Protocol Monitor",
+            "scope": {
+                "real_implementable": ["UAS/UGV telemetry ingest", "MAVLink-compatible parsing", "GCS approval queue", "audit logging"],
+                "emulated_only": ["TMMR role", "TICN-like network role", "Upper C2/BMS role"],
+                "safety_boundary": "Fault injection is local simulation only; no real tactical network, wireless attack, or actuator command is executed.",
+            },
+            "cards": [
+                _status_card("UAV Status", _fleet_status(uav_devices), f"{len(uav_devices)} registered UAV edge device(s)", "real_or_mock"),
+                _status_card("UGV Status", _fleet_status(ugv_devices), f"{len(ugv_devices)} registered UGV edge device(s)", "real_or_mock"),
+                _status_card("C2 Data Link", self._component_status("c2_link"), "REST JSON + MAVLink gateway queue", "real_mavlink_capable"),
+                _status_card("TMMR Emulator", self._component_status("tmmr"), "SIMULATED / NOT REAL MILITARY SYSTEM", "simulated"),
+                _status_card("TICN-like Network", self._component_status("ticn"), "SIMULATED / NOT REAL MILITARY SYSTEM", "simulated"),
+                _status_card("Defense Agent", "critical" if alerts["critical_count"] else "degraded" if alerts["alert_count"] else "normal", f"{alerts['alert_count']} active alert(s)", "defense_monitor"),
+            ],
+            "chain": chain,
+            "alerts": alerts,
+            "fault_allowlist": sorted(ALLOWED_FAULT_TYPES),
+            "mavlink_mode": "REAL MAVLINK-CAPABLE / MOCK MODE",
+        }
+
+    def tactical_emulator_payload(self) -> dict[str, Any]:
+        return self.tactical_emulator.snapshot()
+
+    def chain_payload(self) -> dict[str, Any]:
+        emulator = self.tactical_emulator.snapshot()
+        component_by_id = {item["component_id"]: item for item in emulator["components"]}
+        nodes = []
+        for component_id in ["assets", "c2_link", "gcs", "router", "tmmr", "ticn", "upper_c2"]:
+            component = component_by_id[component_id]
+            nodes.append(
+                _chain_node(
+                    component["component_id"],
+                    component["label"],
+                    component["status"],
+                    component["boundary"],
+                    metrics=component.get("metrics", {}),
+                    simulated=component.get("simulated", True),
+                    role=component.get("role"),
+                )
+            )
+        links = [
+            {
+                "from": link["source"],
+                "to": link["target"],
+                "status": link["status"],
+                "latency_ms": link["latency_ms"],
+                "packet_loss_pct": link["packet_loss_pct"],
+                "simulated": link["simulated"],
+                "boundary": link["boundary"],
+                "transport": link["transport"],
+            }
+            for link in emulator["links"]
+        ]
+        return {
+            "schema_version": "dah-tactical-chain.v1",
+            "nodes": nodes,
+            "links": links,
+            "overall_status": emulator["overall_status"],
+            "emulator": emulator,
+        }
+
+    def alerts_payload(self, limit: int = 50) -> dict[str, Any]:
+        fault_events = self.tactical_emulator.fault_events[-max(1, limit) :]
+        alerts = [tactical_alert_from_fault(row) for row in fault_events]
+        return {
+            "schema_version": "dah-alert-events.v1",
+            "alerts": alerts,
+            "alert_count": len(alerts),
+            "critical_count": sum(1 for item in alerts if item["severity"] == "critical"),
+            "safety_scope": "local Docker simulation and defensive monitoring only",
+        }
+
+    def protocol_monitor_payload(self, requested_time_s: int | None = None, limit: int = 25) -> dict[str, Any]:
+        live = self.live_snapshot(requested_time_s)
+        asset_kinds = self._asset_kind_lookup()
+        telemetry_rows = []
+        for frame in (live.get("external_frames") or [])[-limit:]:
+            telemetry_rows.append(telemetry_from_frame(frame, asset_kind=asset_kinds.get(str(frame.get("asset_id")), "unknown")))
+        if not telemetry_rows:
+            for frame in (live.get("frames") or [])[-limit:]:
+                telemetry_rows.append(telemetry_from_frame(frame, asset_kind=asset_kinds.get(str(frame.get("asset_id")), "unknown")))
+        with self._lock:
+            command_rows = [command_from_queue(command) for command in list(self.command_queue.values())[-limit:]]
+        chain = self.chain_payload()
+        emulator = chain["emulator"]
+        links = [
+            LinkState(
+                link_id=f"{link['source']}->{link['target']}",
+                source=link["source"],
+                target=link["target"],
+                transport=link["transport"],
+                status=link["status"],
+                latency_ms=link["latency_ms"],
+                packet_loss_pct=link["packet_loss_pct"],
+                simulated=link["simulated"],
+                boundary=link["boundary"],
+            )
+            for link in emulator["links"]
+        ]
+        tactical_messages = [
+            TacticalMessage(
+                message_id=f"tactical-{item['component_id']}",
+                timestamp_utc=emulator["generated_at_utc"],
+                source=item["component_id"],
+                destination=emulator["components"][index + 1]["component_id"] if index + 1 < len(emulator["components"]) else "terminal",
+                message_type="COMPONENT_STATE",
+                layer="tactical_emulator" if item["simulated"] else "gcs_link",
+                priority=2 if item["status"] != "normal" else 4,
+                payload={"status": item["status"], "metrics": item.get("metrics", {}), "boundary": item["boundary"]},
+                simulated=item["simulated"],
+            )
+            for index, item in enumerate(emulator["components"])
+        ]
+        alerts = [
+            AlertEvent(
+                alert_id=str(row.get("alert_id")),
+                timestamp_utc=str(row.get("timestamp_utc") or _now()),
+                severity=str(row.get("severity", "warning")),
+                category=str(row.get("category", "simulated_tactical_fault")),
+                title=str(row.get("title", "unknown")),
+                target=row.get("target"),
+                recommended_response=str(row.get("recommended_response", "Review simulated event.")),
+                source_event_id=str(row.get("alert_id")),
+                simulation_only=True,
+            )
+            for row in self.alerts_payload(limit=limit)["alerts"]
+        ]
+        return protocol_monitor_snapshot(
+            telemetry=telemetry_rows,
+            commands=command_rows,
+            tactical_messages=tactical_messages,
+            links=links,
+            alerts=alerts,
+            adapter_status=MockMavlinkAdapter().status(),
+        )
+
+    def inject_fault(self, message: dict[str, Any]) -> dict[str, Any]:
+        payload = message.get("payload", message)
+        if not isinstance(payload, dict):
+            raise ValueError("fault payload must be an object")
+        fault_type = _required_str(payload, "fault_type")
+        if fault_type not in ALLOWED_FAULT_TYPES:
+            raise ValueError(f"fault_type is not allowlisted:{fault_type}")
+        event = self.tactical_emulator.apply_fault(
+            fault_type,
+            requested_by=str(payload.get("requested_by", "dashboard-operator")),
+            target=payload.get("target"),
+            parameters=payload.get("parameters", {}) if isinstance(payload.get("parameters", {}), dict) else {},
+        )
+        event_payload = event.to_payload()
+        with self._lock:
+            self.fault_events.append(event_payload)
+            self._audit("fault.injected", event_payload)
+        return {
+            "accepted": True,
+            "fault": event_payload,
+            "alert": tactical_alert_from_fault(event),
+            "chain": self.chain_payload(),
+        }
+
+    def _component_status(self, component: str) -> str:
+        return self.tactical_emulator.component_status(component)
     def tracks_payload(self, requested_time_s: int | None = None) -> dict[str, Any]:
         time_s = self._nearest_time(requested_time_s)
         frames = self.frames_by_time.get(time_s, [])
@@ -537,6 +724,18 @@ class ServiceState:
             "link_profile": frame.get("link_profile"),
         }
 
+    def _asset_kind_lookup(self) -> dict[str, str]:
+        lookup = {}
+        for asset in self.scenario.assets:
+            platform = str(getattr(asset, "platform_class", "")).lower()
+            role = str(getattr(asset, "role", "")).lower()
+            asset_id = str(getattr(asset, "id", ""))
+            if "ugv" in platform or "ground" in platform or "ground" in role:
+                lookup[asset_id] = "UGV"
+            elif asset_id:
+                lookup[asset_id] = "UAV"
+        return lookup
+
     def _asset_metadata(self, asset_id: str) -> dict[str, Any]:
         for asset in self.scenario.assets:
             if asset.id == asset_id:
@@ -611,6 +810,94 @@ class ServiceState:
             return self.timeline[-1]
         return min(self.timeline, key=lambda item: abs(item - requested_time_s))
 
+
+def _status_card(label: str, status: str, detail: str, mode: str) -> dict[str, Any]:
+    return {"label": label, "status": status, "detail": detail, "mode": mode}
+
+
+def _fleet_status(devices: list[dict[str, Any]]) -> str:
+    if not devices:
+        return "degraded"
+    statuses = {str(item.get("status", "unknown")).lower() for item in devices}
+    if "critical" in statuses or "offline" in statuses:
+        return "critical"
+    if "degraded" in statuses or "unknown" in statuses:
+        return "degraded"
+    return "normal"
+
+
+def _chain_node(
+    node_id: str,
+    label: str,
+    status: str,
+    boundary: str,
+    metrics: dict[str, Any] | None = None,
+    simulated: bool = True,
+    role: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": node_id,
+        "label": label,
+        "status": status,
+        "boundary": boundary,
+        "metrics": metrics or {},
+        "simulated": simulated,
+        "role": role,
+    }
+
+
+def _worst_status(statuses: list[str]) -> str:
+    if "critical" in statuses:
+        return "critical"
+    if "degraded" in statuses:
+        return "degraded"
+    return "normal"
+
+
+def _legacy_fault_severity(fault_type: str) -> str:
+    if fault_type in {"tmmr_queue_overflow", "c2_link_packet_loss", "upper_c2_command_mismatch"}:
+        return "critical"
+    return "warning"
+
+
+def _legacy_default_fault_target(fault_type: str) -> str:
+    if fault_type.startswith("tmmr"):
+        return "tmmr-emulator"
+    if fault_type.startswith("ticn"):
+        return "ticn-like-network"
+    if fault_type.startswith("upper_c2"):
+        return "upper-c2-bms-sim"
+    if fault_type.startswith("c2"):
+        return "c2-data-link"
+    return "mavlink-adapter"
+
+
+def _legacy_alert_from_fault(fault: dict[str, Any]) -> dict[str, Any]:
+    fault_type = str(fault.get("fault_type", "unknown"))
+    return {
+        "alert_id": fault.get("fault_id"),
+        "timestamp_utc": fault.get("created_at"),
+        "severity": fault.get("severity", fault_severity(fault_type)),
+        "category": "simulated_fault",
+        "title": fault_type.replace("_", " ").title(),
+        "target": fault.get("target"),
+        "status": "open",
+        "recommended_response": recommended_response(fault_type),
+        "simulation_only": True,
+    }
+
+
+def _legacyrecommended_response(fault_type: str) -> str:
+    mapping = {
+        "mavlink_plaintext_warning": "Flag unauthenticated telemetry, preserve packets, and require signed/encrypted transport in the next profile.",
+        "mission_count_reset_attempt": "Hold mission upload approval, compare mission sequence counters, and request operator confirmation.",
+        "c2_link_delay": "Mark C2 link degraded and prefer local edge safety policy until delay clears.",
+        "c2_link_packet_loss": "Switch to degraded-link playbook and stop non-essential work dispatch.",
+        "tmmr_queue_overflow": "Throttle low-priority tactical messages and preserve queue metrics for analysis.",
+        "ticn_route_metric_change": "Freeze route decision baseline and compare route metric deltas against allowlisted changes.",
+        "upper_c2_command_mismatch": "Require dual approval before any command leaves the GCS queue.",
+    }
+    return mapping.get(fault_type, "Review simulated event and keep real command execution disabled.")
 
 def _protocol_log_row(row: dict[str, Any]) -> dict[str, Any]:
     data = row.get("data", {}) if isinstance(row.get("data"), dict) else {}

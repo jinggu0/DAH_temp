@@ -352,6 +352,35 @@ class UasUtmServiceTests(unittest.TestCase):
             self.assertEqual(approved["message_type"], "COMMAND_LONG")
             self.assertEqual(approved["direction"], "approver_to_utm")
             self.assertEqual(approved["asset_id"], "ground-convoy-01")
+    def test_dashboard_payload_exposes_dah_cards_and_boundaries(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        payload = state.dashboard_payload()
+
+        self.assertEqual(payload["schema_version"], "dah-gcs-dashboard.v1")
+        self.assertEqual(len(payload["cards"]), 6)
+        self.assertIn("TMMR Emulator", [card["label"] for card in payload["cards"]])
+        self.assertIn("TICN-like Network", [card["label"] for card in payload["cards"]])
+        self.assertIn("TMMR role", payload["scope"]["emulated_only"])
+
+    def test_allowlisted_fault_injection_creates_alert_and_degrades_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json", log_dir=Path(tmpdir))
+
+            result = state.inject_fault({"payload": {"fault_type": "tmmr_queue_overflow", "requested_by": "operator-a"}})
+            alerts = state.alerts_payload()
+            chain = state.chain_payload()
+
+            self.assertTrue(result["accepted"])
+            self.assertEqual(alerts["critical_count"], 1)
+            self.assertEqual(chain["overall_status"], "critical")
+            self.assertTrue(result["fault"]["simulation_only"])
+
+    def test_fault_injection_rejects_non_allowlisted_faults(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        with self.assertRaises(ValueError):
+            state.inject_fault({"payload": {"fault_type": "real_network_attack"}})
     def test_baseline_export_includes_agent_observations(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json", log_dir=Path(tmpdir))

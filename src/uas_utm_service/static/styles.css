@@ -437,3 +437,139 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
+
+.gcs-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 16px 16px 0;
+}
+
+.gcs-card {
+  min-height: 118px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.gcs-card-label,
+.gcs-card-detail {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.gcs-card-status {
+  margin: 7px 0;
+  font-size: 19px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sim-badge {
+  display: inline-flex;
+  margin-top: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chain-panel {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.chain-diagram {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.chain-node {
+  min-height: 112px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.chain-node strong,
+.chain-node span,
+.chain-node small {
+  display: block;
+}
+
+.chain-node strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.chain-node span {
+  margin: 6px 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.chain-node small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.chain-arrow {
+  display: none;
+}
+
+.fault-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.fault-control select {
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.alert-list li.pending {
+  border-left-color: #b06100;
+}
+
+@media (max-width: 1280px) {
+  .gcs-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .chain-diagram {
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .gcs-summary-grid,
+  .chain-diagram {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chain-metrics {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}

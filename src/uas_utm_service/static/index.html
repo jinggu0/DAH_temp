@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DAH UAS/UTM Live Service</title>
+    <title>DAH UAS/UGV GCS Protocol Monitor</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>DAH UAS/UTM Live Service</h1>
+        <h1>DAH UAS/UGV GCS Protocol Monitor</h1>
         <p id="scenarioName">Loading scenario</p>
       </div>
       <nav class="status-strip" aria-label="service status">
@@ -19,6 +19,8 @@
         <span id="modeLabel">Replay</span>
       </nav>
     </header>
+
+    <section id="dahSummaryCards" class="gcs-summary-grid" aria-label="DAH GCS status summary"></section>
 
     <section class="protocol-control-bar" aria-label="protocol console">
       <div class="section-heading-row protocol-control-heading">
@@ -45,6 +47,16 @@
     </section>
     <main class="layout">
       <section class="map-surface" aria-label="airspace map">
+                <section class="chain-panel" aria-label="tactical protocol chain">
+          <div class="section-heading-row">
+            <div>
+              <h2>Tactical Protocol Chain</h2>
+              <p class="protocol-text">UAV/UGV to GCS to simulated TMMR/TICN/C2 chain. Simulated components are not real military systems.</p>
+            </div>
+            <span id="chainStatus" class="protocol-pill status-neutral">loading</span>
+          </div>
+          <div id="chainDiagram" class="chain-diagram"></div>
+        </section>
         <canvas id="airspaceCanvas" width="1100" height="720"></canvas>
         <div class="timeline">
           <button id="playButton" title="Play or pause replay">Play</button>
@@ -54,6 +66,19 @@
       </section>
 
       <aside class="side-panel">
+        <section>
+          <h2>Detection / Response</h2>
+          <ul id="alertList" class="decision-list alert-list"></ul>
+        </section>
+
+        <section>
+          <h2>Safe Fault Injection</h2>
+          <p class="protocol-text">Local Docker simulation only. No real attack traffic or actuator command is generated.</p>
+          <div class="fault-control">
+            <select id="faultTypeSelect" aria-label="fault type"></select>
+            <button id="injectFaultButton" title="Inject a local simulated fault">Inject</button>
+          </div>
+        </section>
         <section>
           <h2>Operations</h2>
           <dl class="metrics">
@@ -126,6 +151,12 @@
         <section>
           <h2>Edge Devices</h2>
           <ul id="edgeDeviceList" class="decision-list"></ul>
+        </section>
+
+        <section>
+          <h2>Protocol Monitor Models</h2>
+          <div id="protocolMonitorState" class="message-grid"></div>
+          <p id="protocolMonitorBoundary" class="protocol-text">Loading protocol monitor model state</p>
         </section>
 
         <section>

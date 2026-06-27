@@ -47,6 +47,8 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             query = parse_qs(parsed.query)
             if path == "/api/health":
                 self._send_json(envelope(message_type="utm.health", payload={"ok": True, "scenario": state.scenario.name}))
+            elif path == "/api/protocol-monitor":
+                self._send_json(envelope(message_type="dah.protocol_monitor", payload=state.protocol_monitor_payload(_int_query(query, "time_s"), _int_query(query, "limit") or 25)))
             elif path == "/api/protocol":
                 self._send_json(envelope(message_type="utm.protocol", payload=protocol_profile()))
             elif path == "/api/scenario":
@@ -55,6 +57,14 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(envelope(message_type="utm.operation_profile", payload=state.operation_profile()))
             elif path == "/api/edge/devices":
                 self._send_json(envelope(message_type="utm.edge.devices", payload=state.edge_devices_payload()))
+            elif path == "/api/tactical-emulator":
+                self._send_json(envelope(message_type="dah.tactical_emulator", payload=state.tactical_emulator_payload()))
+            elif path == "/api/dashboard":
+                self._send_json(envelope(message_type="dah.dashboard", payload=state.dashboard_payload()))
+            elif path == "/api/chain":
+                self._send_json(envelope(message_type="dah.chain", payload=state.chain_payload()))
+            elif path == "/api/alerts":
+                self._send_json(envelope(message_type="dah.alerts", payload=state.alerts_payload(_int_query(query, "limit") or 50)))
             elif path == "/api/summary":
                 self._send_json(envelope(message_type="utm.summary", payload=state.summary))
             elif path == "/api/decisions":
@@ -175,6 +185,7 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 "/api/commands/reject": ("utm.command.reject", state.reject_command, HTTPStatus.OK),
                 "/api/mission-uploads/request": ("utm.mission_upload.request", state.request_mission_upload, HTTPStatus.ACCEPTED),
                 "/api/mission-uploads/approve": ("utm.mission_upload.approve", state.approve_mission_upload, HTTPStatus.OK),
+                "/api/faults/inject": ("dah.fault.inject", state.inject_fault, HTTPStatus.ACCEPTED),
             }
             route = route_map.get(parsed.path)
             if route is None:

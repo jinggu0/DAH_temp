@@ -12,6 +12,10 @@ const state = {
   logIntegrity: null,
   protocolLogs: null,
   runtimeLogs: null,
+  dashboard: null,
+  chain: null,
+  alerts: null,
+  protocolMonitor: null,
   protocolRuns: [],
   showProtocolHeartbeat: false,
   protocolLogLive: true,
@@ -59,7 +63,7 @@ async function postApi(path, payload) {
 }
 
 async function bootstrap() {
-  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, runtimeLogs] = await Promise.all([
+  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, runtimeLogs, dashboard, chain, alerts, protocolMonitor] = await Promise.all([
     api("/api/health"),
     api("/api/protocol"),
     api("/api/scenario"),
@@ -75,6 +79,10 @@ async function bootstrap() {
     api("/api/logs/verify"),
     api("/api/protocol/logs?limit=80&include_heartbeat=false"),
     api("/api/runtime/logs?limit=80"),
+    api("/api/dashboard"),
+    api("/api/chain"),
+    api("/api/alerts?limit=20"),
+    api("/api/protocol-monitor?limit=20"),
   ]);
   document.querySelector("#serviceStatus").textContent = health.payload.ok ? "API OK" : "API Error";
   document.querySelector("#protocolText").textContent =
@@ -92,9 +100,17 @@ async function bootstrap() {
   state.logIntegrity = logIntegrity.payload;
   state.protocolLogs = protocolLogs.payload;
   state.runtimeLogs = runtimeLogs.payload;
+  state.dashboard = dashboard.payload;
+  state.chain = chain.payload;
+  state.alerts = alerts.payload;
+  state.protocolMonitor = protocolMonitor.payload;
   slider.min = 0;
   slider.max = Math.max(0, state.timeline.length - 1);
   slider.value = 0;
+  renderGcsSummary();
+  renderChain();
+  renderAlerts();
+  renderFaultControls();
   renderSummary();
   renderOperationProfile();
   renderEdgeDevices();
@@ -110,6 +126,108 @@ async function bootstrap() {
   startProtocolLogLive();
 }
 
+
+function renderGcsSummary() {
+  const node = document.querySelector("#dahSummaryCards");
+  if (!node) return;
+  const cards = state.dashboard?.cards ?? [];
+  node.innerHTML = cards
+    .map((card) => `
+      <article class="gcs-card ${statusClass(card.status)}">
+        <div class="gcs-card-label">${escapeHtml(card.label)}</div>
+        <div class="gcs-card-status">${escapeHtml(card.status)}</div>
+        <div class="gcs-card-detail">${escapeHtml(card.detail)}</div>
+        <span class="sim-badge">${escapeHtml(card.mode)}</span>
+      </article>`)
+    .join("");
+}
+
+function renderChain() {
+  const node = document.querySelector("#chainDiagram");
+  const status = document.querySelector("#chainStatus");
+  if (!node) return;
+  const chain = state.chain ?? state.dashboard?.chain;
+  if (!chain) {
+    node.innerHTML = '<p class="protocol-text">No chain snapshot</p>';
+    return;
+  }
+  if (status) {
+    status.textContent = chain.overall_status;
+    status.className = `protocol-pill ${statusClass(chain.overall_status)}`;
+  }
+  node.innerHTML = chain.nodes
+    .map((item, index) => `
+      <div class="chain-node ${statusClass(item.status)}" title="${escapeHtml(item.boundary)}">
+        <strong>${escapeHtml(item.label)}</strong>
+        <span>${escapeHtml(item.status)}</span>
+        <small>${escapeHtml(item.boundary)}</small>
+      </div>
+      ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">-></div>' : ''}`)
+    .join("");
+}
+
+
+function metricSummary(metrics) {
+  const entries = Object.entries(metrics ?? {}).slice(0, 3);
+  if (!entries.length) return "metrics: baseline";
+  return entries.map(([key, value]) => `${key}=${value}`).join(" / ");
+}
+function renderAlerts() {
+  const list = document.querySelector("#alertList");
+  if (!list) return;
+  const alerts = state.alerts?.alerts ?? state.dashboard?.alerts?.alerts ?? [];
+  list.innerHTML = "";
+  if (!alerts.length) {
+    appendListText(list, "No simulated alerts");
+    return;
+  }
+  for (const alert of alerts.slice().reverse()) {
+    const item = document.createElement("li");
+    item.className = alert.severity === "critical" ? "rejected" : "pending";
+    item.textContent = `${alert.severity} / ${alert.title} / ${alert.target ?? "-"}`;
+    item.title = alert.recommended_response ?? "";
+    list.appendChild(item);
+  }
+}
+
+function renderFaultControls() {
+  const select = document.querySelector("#faultTypeSelect");
+  if (!select) return;
+  const current = select.value;
+  const faults = state.dashboard?.fault_allowlist ?? [];
+  select.innerHTML = faults.map((fault) => `<option value="${escapeHtml(fault)}">${escapeHtml(fault)}</option>`).join("");
+  if (current && faults.includes(current)) select.value = current;
+}
+
+async function refreshDahDashboard() {
+  const [dashboard, chain, alerts, protocolMonitor] = await Promise.all([
+    api("/api/dashboard"),
+    api("/api/chain"),
+    api("/api/alerts?limit=20"),
+    api("/api/protocol-monitor?limit=20"),
+  ]);
+  state.dashboard = dashboard.payload;
+  state.chain = chain.payload;
+  state.alerts = alerts.payload;
+  state.protocolMonitor = protocolMonitor.payload;
+  renderGcsSummary();
+  renderChain();
+  renderAlerts();
+  renderFaultControls();
+}
+
+async function injectSelectedFault() {
+  const select = document.querySelector("#faultTypeSelect");
+  const faultType = select?.value;
+  if (!faultType) return { skipped: true, reason: "No fault type selected" };
+  const result = await postApi("/api/faults/inject", {
+    fault_type: faultType,
+    requested_by: "dashboard-operator",
+  });
+  await refreshDahDashboard().catch(console.error);
+  await refreshWorkQueues().catch(console.error);
+  return result;
+}
 function renderSummary() {
   document.querySelector("#scenarioName").textContent = state.scenario.name;
   document.querySelector("#assetCount").textContent = state.summary.asset_count;
@@ -221,6 +339,28 @@ function renderLogStorage() {
   }
   const link = document.querySelector("#logStorageLink");
   if (link) link.textContent = state.logStatus?.current_file ?? "logs/uas_utm/audit.jsonl";
+}
+
+function renderProtocolMonitorSummary() {
+  const node = document.querySelector("#protocolMonitorState");
+  if (!node) return;
+  const monitor = state.protocolMonitor;
+  node.innerHTML = "";
+  const entries = [
+    ["Schema", monitor?.schema_version ?? "-"],
+    ["MAVLink", monitor?.mavlink_adapter?.mode ?? "-"],
+    ["Telemetry", monitor?.telemetry?.length ?? 0],
+    ["Commands", monitor?.commands?.length ?? 0],
+    ["Tactical", monitor?.tactical_messages?.length ?? 0],
+    ["Alerts", monitor?.alerts?.length ?? 0],
+  ];
+  for (const [label, value] of entries) {
+    const item = document.createElement("div");
+    item.innerHTML = `<strong>${escapeHtml(label)}</strong><br>${escapeHtml(value)}`;
+    node.appendChild(item);
+  }
+  const boundary = document.querySelector("#protocolMonitorBoundary");
+  if (boundary) boundary.textContent = monitor?.safety_boundary ?? "Protocol monitor not loaded";
 }
 function renderMavlinkState() {
   const node = document.querySelector("#mavlinkState");
@@ -1155,6 +1295,7 @@ bindProtocolButton("#protocolPollDronebotButton", "GET edge-dronebot work", () =
 bindProtocolButton("#protocolPollUgvButton", "GET UGV edge work", () => pollEdgeWork(edgeIdForAsset("ground-convoy-01")));
 bindProtocolButton("#protocolAckLatestButton", "POST edge work ACK", ackLatestApprovedWork);
 bindProtocolButton("#protocolVerifyLogsButton", "GET logs verify", () => api("/api/logs/verify"));
+bindProtocolButton("#injectFaultButton", "POST simulated fault", injectSelectedFault);
 
 const refreshProtocolLogButton = document.querySelector("#refreshProtocolLogButton");
 if (refreshProtocolLogButton) refreshProtocolLogButton.addEventListener("click", () => refreshProtocolLogsOnly().catch(console.error));
