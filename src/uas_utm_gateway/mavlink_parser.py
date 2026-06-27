@@ -14,6 +14,9 @@ MESSAGE_NAMES = {
     1: "SYS_STATUS",
     33: "GLOBAL_POSITION_INT",
     42: "MISSION_CURRENT",
+    44: "MISSION_COUNT",
+    47: "MISSION_ACK",
+    51: "MISSION_REQUEST_INT",
     73: "MISSION_ITEM_INT",
     76: "COMMAND_LONG",
     77: "COMMAND_ACK",
@@ -123,6 +126,10 @@ def _parse_payload(message_id: int, payload: bytes) -> dict[str, Any]:
         return _parse_global_position_int(payload)
     if message_id == 42:
         return _parse_mission_current(payload)
+    if message_id == 47:
+        return _parse_mission_ack(payload)
+    if message_id == 51:
+        return _parse_mission_request_int(payload)
     if message_id == 77:
         return _parse_command_ack(payload)
     if message_id == 340:
@@ -201,3 +208,18 @@ def _parse_command_ack(payload: bytes) -> dict[str, Any]:
         raise ValueError("COMMAND_ACK payload too short")
     command, result = struct.unpack_from("<HB", payload)
     return {"command": command, "result": result}
+
+def _parse_mission_request_int(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 4:
+        raise ValueError("MISSION_REQUEST_INT payload too short")
+    seq, target_system, target_component = struct.unpack_from("<HBB", payload)
+    mission_type = struct.unpack_from("<B", payload, 4)[0] if len(payload) >= 5 else 0
+    return {"seq": seq, "target_system": target_system, "target_component": target_component, "mission_type": mission_type}
+
+
+def _parse_mission_ack(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 3:
+        raise ValueError("MISSION_ACK payload too short")
+    target_system, target_component, ack_type = struct.unpack_from("<BBB", payload)
+    mission_type = struct.unpack_from("<B", payload, 3)[0] if len(payload) >= 4 else 0
+    return {"target_system": target_system, "target_component": target_component, "type": ack_type, "mission_type": mission_type}

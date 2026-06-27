@@ -5,6 +5,7 @@ services:
       - "8080:8080"
     volumes:
       - ./output:/app/output
+      - ./logs:/app/logs
     environment:
       PYTHONUNBUFFERED: "1"
 
@@ -27,6 +28,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
   uas-utm-edge-dronebot:
+    profiles: ["sample-edge"]
     build: .
     command:
       - uas-utm-edge

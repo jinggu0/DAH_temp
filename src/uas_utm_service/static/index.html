@@ -20,6 +20,29 @@
       </nav>
     </header>
 
+    <section class="protocol-control-bar" aria-label="protocol console">
+      <div class="section-heading-row protocol-control-heading">
+        <div>
+          <h2>Protocol Console</h2>
+          <p class="protocol-text">Run UAS/UTM protocol steps and watch the live log below.</p>
+        </div>
+        <ul id="protocolRunList" class="decision-list protocol-run-list"></ul>
+      </div>
+      <div class="protocol-actions">
+        <button id="protocolHealthButton" title="Call the health envelope endpoint">Health</button>
+        <button id="protocolRegisterUgvButton" title="Register the dashboard UGV edge device">Register UGV</button>
+        <button id="protocolHeartbeatUgvButton" title="Send edge heartbeat JSON">Heartbeat</button>
+        <button id="protocolTelemetryUgvButton" title="Ingest UGV telemetry sample">Telemetry</button>
+        <button id="protocolRequestCommandButton" title="Request a UGV hold-position command">Request Cmd</button>
+        <button id="protocolApproveCommandButton" title="Approve the next pending command">Approve Cmd</button>
+        <button id="protocolRequestMissionButton" title="Request UGV MAVLink mission upload">Request Mission</button>
+        <button id="protocolApproveMissionButton" title="Approve the next pending mission upload">Approve Mission</button>
+        <button id="protocolPollDronebotButton" title="Poll approved work for UAV edge">Poll UAV</button>
+        <button id="protocolPollUgvButton" title="Poll approved work for UGV edge">Poll UGV</button>
+        <button id="protocolAckLatestButton" title="ACK latest approved command or mission upload">ACK Latest</button>
+        <button id="protocolVerifyLogsButton" title="Verify audit hash chain integrity">Verify Logs</button>
+      </div>
+    </section>
     <main class="layout">
       <section class="map-surface" aria-label="airspace map">
         <canvas id="airspaceCanvas" width="1100" height="720"></canvas>
@@ -45,6 +68,42 @@
           <h2>UTM Decisions</h2>
           <ul id="decisionList" class="decision-list"></ul>
         </section>
+        <section>
+          <h2>C2 Command Approval</h2>
+          <dl class="metrics compact-metrics">
+            <div><dt>Pending</dt><dd id="pendingCommandCount">0</dd></div>
+            <div><dt>Gateway</dt><dd id="approvedCommandCount">0</dd></div>
+          </dl>
+          <div class="action-row">
+            <button id="requestCommandButton" title="Request a hold-position MAVLink command">Request Hold</button>
+            <button id="approveCommandButton" title="Approve the next pending command">Approve</button>
+            <button id="rejectCommandButton" title="Reject the next pending command">Reject</button>
+          </div>
+          <ul id="commandQueueList" class="decision-list queue-list"></ul>
+        </section>
+
+        <section>
+          <h2>Mission Upload Approval</h2>
+          <dl class="metrics compact-metrics">
+            <div><dt>Pending</dt><dd id="pendingUploadCount">0</dd></div>
+            <div><dt>Gateway</dt><dd id="approvedUploadCount">0</dd></div>
+          </dl>
+          <div class="action-row two-actions">
+            <button id="requestMissionUploadButton" title="Request MAVLink mission upload for the first UTM-approved mission">Request Upload</button>
+            <button id="approveMissionUploadButton" title="Approve the next pending mission upload">Approve</button>
+          </div>
+          <ul id="missionUploadQueueList" class="decision-list queue-list"></ul>
+        </section>
+
+        <section>
+          <h2>Audit Timeline</h2>
+          <ul id="auditTimelineList" class="decision-list queue-list audit-list"></ul>
+        </section>
+        <section>
+          <h2>Log Storage</h2>
+          <div id="logStorageState" class="message-grid"></div>
+          <p id="logStorageLink" class="protocol-text">logs/uas_utm/audit.jsonl</p>
+        </section>
 
         <section>
           <h2>MAVLink Messages</h2>
@@ -65,11 +124,43 @@
         </section>
 
         <section>
+          <h2>Edge Devices</h2>
+          <ul id="edgeDeviceList" class="decision-list"></ul>
+        </section>
+
+        <section>
+          <h2>MAVLink Link State</h2>
+          <div id="mavlinkState" class="message-grid"></div>
+        </section>
+
+        <section>
+          <h2>Baseline Export</h2>
+          <p class="protocol-text"><a href="/api/baseline/export" target="_blank" rel="noreferrer">Open JSON baseline</a></p>
+        </section>
+
+        <section>
           <h2>Protocol Profile</h2>
           <p id="protocolText" class="protocol-text">Loading protocol envelope</p>
         </section>
       </aside>
     </main>
+
+    <section class="bottom-band">
+      <div class="section-heading-row">
+        <div>
+          <h2>Protocol Log</h2>
+          <p id="protocolLogStatus" class="protocol-text">Loading protocol events</p><p id="runtimeLogStatus" class="protocol-text">Loading runtime logs</p>
+        </div>
+        <div class="action-row two-actions protocol-log-actions">
+          <button id="refreshProtocolLogButton" title="Reload protocol log table">Refresh</button>
+          <button id="toggleHeartbeatButton" title="Toggle edge heartbeat noise in protocol log">Show Heartbeat</button>
+          <button id="toggleProtocolLiveButton" title="Pause or resume protocol log polling">Pause Live</button>
+        </div>
+      </div>
+      <div id="protocolLogTable" class="asset-table protocol-log-table"></div>
+      <h2 class="runtime-log-heading">Service Runtime Log</h2>
+      <div id="runtimeLogTable" class="asset-table runtime-log-table"></div>
+    </section>
 
     <section class="bottom-band">
       <h2>Telemetry Snapshot</h2>

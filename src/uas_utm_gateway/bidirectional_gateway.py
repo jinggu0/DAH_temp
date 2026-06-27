@@ -9,7 +9,7 @@ from typing import Any
 
 from uas_utm.simulator import load_scenario
 
-from .mavlink_builder import ACK_RESULTS, OutboundMavlinkFrame, build_command_long_frames, build_mission_item_int_frames
+from .mavlink_builder import ACK_RESULTS, OutboundMavlinkFrame, build_command_long_frames, build_mission_count_frame, build_mission_item_int_frames
 from .mavlink_parser import ParsedMavlinkFrame, parse_datagram
 from .service_client import UtmServiceClient
 from .translator import MavlinkTelemetryTranslator
@@ -50,6 +50,8 @@ class BidirectionalMavlinkGateway:
         self.endpoint_by_asset_id: dict[str, Endpoint] = {}
         self.sent_work_ids: set[tuple[str, str]] = set()
         self.pending_ack: dict[tuple[str, int, int], OutboundMavlinkFrame] = {}
+        self.pending_mission_items: dict[tuple[str, int], list[OutboundMavlinkFrame]] = {}
+        self.pending_mission_upload: dict[tuple[str, int], OutboundMavlinkFrame] = {}
         self.registered_edges: set[str] = set()
         self.sequence = 0
         self.signing_key = signing_key
@@ -85,6 +87,12 @@ class BidirectionalMavlinkGateway:
                 self._remember_endpoint(item, endpoint)
                 if item.message_name == "COMMAND_ACK":
                     self._handle_command_ack(item, endpoint)
+                    continue
+                if item.message_name == "MISSION_REQUEST_INT":
+                    self._handle_mission_request_int(sock, item, endpoint)
+                    continue
+                if item.message_name == "MISSION_ACK":
+                    self._handle_mission_ack(item, endpoint)
                     continue
             message = self.translator.translate(item)
             if message is None:
@@ -128,6 +136,7 @@ class BidirectionalMavlinkGateway:
         endpoint = self.endpoint_by_asset_id.get(str(upload["asset_id"]))
         if asset is None or endpoint is None:
             return
+        signing_timestamp = self._next_signing_timestamp() if self.signing_key else None
         frames = build_mission_item_int_frames(
             upload=upload,
             system_id=asset.system_id,
@@ -135,9 +144,21 @@ class BidirectionalMavlinkGateway:
             sequence_start=self._next_sequence(),
             signing_key=self.signing_key,
             signing_link_id=self.signing_link_id,
-            signing_timestamp=self._next_signing_timestamp() if self.signing_key else None,
+            signing_timestamp=signing_timestamp,
         )
-        self._send_frames(sock, endpoint, frames)
+        count_frame = build_mission_count_frame(
+            upload=upload,
+            system_id=asset.system_id,
+            component_id=asset.component_id,
+            sequence=self._next_sequence(),
+            signing_key=self.signing_key,
+            signing_link_id=self.signing_link_id,
+            signing_timestamp=None if signing_timestamp is None else signing_timestamp + len(frames),
+        )
+        key = (endpoint.host, asset.system_id)
+        self.pending_mission_items[key] = frames
+        self.pending_mission_upload[key] = count_frame
+        self._send_frames(sock, endpoint, [count_frame])
 
     def _send_frames(self, sock: socket.socket, endpoint: Endpoint, frames: list[OutboundMavlinkFrame]) -> None:
         for frame in frames:
@@ -156,6 +177,29 @@ class BidirectionalMavlinkGateway:
             self.client.register_edge(edge_id=edge_id, asset_id=asset.id, device_type=_device_type(asset.platform_class))
             self.registered_edges.add(edge_id)
 
+
+    def _handle_mission_request_int(self, sock: socket.socket, frame: ParsedMavlinkFrame, endpoint: Endpoint) -> None:
+        key = (endpoint.host, frame.system_id)
+        items = self.pending_mission_items.get(key)
+        if not items:
+            return
+        seq = int(frame.fields.get("seq", -1))
+        if seq < 0 or seq >= len(items):
+            return
+        item = items[seq]
+        sock.sendto(item.frame, endpoint.socket_address)
+        print(f"sent {item.message_name} seq={seq} {item.object_type}:{item.object_id} -> {endpoint.host}:{endpoint.port}")
+
+    def _handle_mission_ack(self, frame: ParsedMavlinkFrame, endpoint: Endpoint) -> None:
+        key = (endpoint.host, frame.system_id)
+        pending = self.pending_mission_upload.pop(key, None)
+        self.pending_mission_items.pop(key, None)
+        if pending is None:
+            return
+        result = f"MISSION_ACK_{int(frame.fields.get('type', -1))}"
+        edge_id = self._edge_id(pending.asset_id)
+        self.client.ack_edge_work(edge_id=edge_id, object_type=pending.object_type, object_id=pending.object_id, result=result)
+        print(f"mission ack {pending.object_type}:{pending.object_id} from {endpoint.host}:{endpoint.port} result={result}")
     def _handle_command_ack(self, frame: ParsedMavlinkFrame, endpoint: Endpoint) -> None:
         command_id = int(frame.fields.get("command", -1))
         key = (endpoint.host, frame.system_id, command_id)

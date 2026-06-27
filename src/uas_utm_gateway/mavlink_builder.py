@@ -11,12 +11,19 @@ MAVLINK_IFLAG_SIGNED = 0x01
 MAVLINK_EPOCH_OFFSET_S = 1_420_070_400
 
 MESSAGE_IDS = {
+    "MISSION_COUNT": 44,
+    "MISSION_ACK": 47,
+    "MISSION_REQUEST_INT": 51,
     "MISSION_ITEM_INT": 73,
     "COMMAND_LONG": 76,
     "COMMAND_ACK": 77,
 }
 
 CRC_EXTRA = {
+    33: 104,  # GLOBAL_POSITION_INT, common.xml
+    44: 221,  # MISSION_COUNT, common.xml
+    47: 153,  # MISSION_ACK, common.xml
+    51: 196,  # MISSION_REQUEST_INT, common.xml
     73: 38,   # MISSION_ITEM_INT, common.xml
     76: 152,  # COMMAND_LONG, common.xml
     77: 143,  # COMMAND_ACK, common.xml
@@ -106,6 +113,41 @@ def build_command_long_frames(
     ]
 
 
+
+
+def build_mission_count_frame(
+    *,
+    upload: dict[str, Any],
+    system_id: int,
+    component_id: int,
+    sequence: int,
+    signing_key: bytes | None = None,
+    signing_link_id: int = 0,
+    signing_timestamp: int | None = None,
+) -> OutboundMavlinkFrame:
+    count = len(upload.get("mavlink_items", []))
+    payload = struct.pack("<HBBB", count, system_id, component_id, 0)
+    frame = build_mavlink2_frame(
+        seq=sequence,
+        system_id=255,
+        component_id=190,
+        message_id=MESSAGE_IDS["MISSION_COUNT"],
+        payload=payload,
+        signing_key=signing_key,
+        signing_link_id=signing_link_id,
+        signing_timestamp=signing_timestamp,
+    )
+    return OutboundMavlinkFrame(
+        object_type="mission_upload",
+        object_id=str(upload["upload_id"]),
+        asset_id=str(upload["asset_id"]),
+        system_id=system_id,
+        component_id=component_id,
+        message_name="MISSION_COUNT",
+        command_id=None,
+        payload=payload,
+        frame=frame,
+    )
 def build_mission_item_int_frames(
     *,
     upload: dict[str, Any],
@@ -121,7 +163,7 @@ def build_mission_item_int_frames(
         fields = item.get("fields", {})
         command_id = _command_id(str(fields.get("command", "MAV_CMD_NAV_WAYPOINT")))
         payload = struct.pack(
-            "<ffffiifHHBBBBB",
+            "<ffffiifHHBBBBBB",
             float(fields.get("param1", 0.0)),
             float(fields.get("param2", 0.0)),
             float(fields.get("param3", 0.0)),

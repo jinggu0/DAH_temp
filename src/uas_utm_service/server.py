@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -18,9 +18,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--scenario", default="scenarios/korea_defense_uas_utm_ops.json")
+    parser.add_argument("--log-dir", default="logs/uas_utm", help="Append-only JSONL audit log directory")
     args = parser.parse_args(argv)
 
-    state = ServiceState(Path(args.scenario))
+    state = ServiceState(Path(args.scenario), log_dir=Path(args.log_dir))
     handler_class = _make_handler(state)
     server = ThreadingHTTPServer((args.host, args.port), handler_class)
     print(f"UAS/UTM service listening on http://{args.host}:{args.port}")
@@ -112,8 +113,46 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                         payload=state.mission_uploads_payload(_str_query(query, "status") or "approved_for_gateway"),
                     )
                 )
-            elif path == "/api/audit":
-                self._send_json(envelope(message_type="utm.audit", payload=state.audit_payload(_int_query(query, "limit") or 100)))
+            elif path == "/api/audit" or path == "/api/logs":
+                self._send_json(
+                    envelope(
+                        message_type="utm.audit",
+                        payload=state.audit_payload(
+                            _int_query(query, "limit") or 100,
+                            event_type=_str_query(query, "event_type"),
+                        ),
+                    )
+                )
+            elif path == "/api/logs/agent-view":
+                self._send_json(
+                    envelope(
+                        message_type="utm.logs.agent_view",
+                        payload=state.agent_logs_payload(
+                            _int_query(query, "limit") or 100,
+                            event_type=_str_query(query, "event_type"),
+                            phase=_str_query(query, "phase"),
+                            include_heartbeat=_bool_query(query, "include_heartbeat", True),
+                        ),
+                    )
+                )
+            elif path == "/api/protocol/logs":
+                self._send_json(
+                    envelope(
+                        message_type="utm.protocol.logs",
+                        payload=state.protocol_logs_payload(
+                            _int_query(query, "limit") or 100,
+                            include_heartbeat=_bool_query(query, "include_heartbeat", True),
+                        ),
+                    )
+                )
+            elif path == "/api/runtime/logs":
+                self._send_json(envelope(message_type="utm.runtime.logs", payload=state.runtime_logs_payload(_int_query(query, "limit") or 100)))
+            elif path == "/api/logs/status":
+                self._send_json(envelope(message_type="utm.logs.status", payload=state.logs_status_payload()))
+            elif path == "/api/logs/verify":
+                self._send_json(envelope(message_type="utm.logs.verify", payload=state.verify_logs_payload()))
+            elif path == "/api/baseline/export":
+                self._send_json(envelope(message_type="utm.baseline.export", payload=state.baseline_export_payload(_int_query(query, "limit") or 500)))
             elif path == "/" or path == "/index.html":
                 self._send_file(static_root / "index.html")
             elif path.startswith("/static/"):
@@ -157,7 +196,18 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             self._send_json(envelope(message_type=message_type, payload=payload), status=success_status)
 
         def log_message(self, format: str, *args: object) -> None:
-            print(f"{self.address_string()} - {format % args}")
+            rendered = format % args
+            remote = self.address_string()
+            line = f"{remote} - {rendered}"
+            print(line)
+            try:
+                state.record_runtime_log(
+                    source="uas-utm-service",
+                    message=line,
+                    data={"remote": remote, "request": rendered},
+                )
+            except Exception:
+                pass
 
         def _read_json_body(self) -> dict:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -234,6 +284,12 @@ def _int_query(query: dict[str, list[str]], key: str) -> int | None:
         return None
 
 
+def _bool_query(query: dict[str, list[str]], key: str, default: bool = False) -> bool:
+    raw_value = query.get(key, [None])[0]
+    if raw_value is None:
+        return default
+    return raw_value.lower() in {"1", "true", "yes", "on"}
+
 def _str_query(query: dict[str, list[str]], key: str) -> str | None:
     value = query.get(key, [None])[0]
     return value if value else None
@@ -241,4 +297,3 @@ def _str_query(query: dict[str, list[str]], key: str) -> str | None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

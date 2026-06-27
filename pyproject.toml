@@ -13,9 +13,13 @@ dependencies = []
 [project.scripts]
 dah-harness = "dah_harness.cli:main"
 uas-utm = "uas_utm.cli:main"
+uas-utm-scenario-report = "uas_utm.scenario_report:main"
+uas-utm-scenario-package = "uas_utm.scenario_package:main"
 uas-utm-service = "uas_utm_service.server:main"
+uas-utm-baseline-export = "uas_utm_service.baseline_export:main"
 uas-utm-gateway = "uas_utm_gateway.udp_gateway:main"
 uas-utm-bidir-gateway = "uas_utm_gateway.bidirectional_gateway:main"
+uas-utm-mavlink-smoke = "uas_utm_gateway.mock_smoke_test:main"
 uas-utm-edge = "uas_utm_edge.agent:main"
 
 [tool.setuptools.packages.find]

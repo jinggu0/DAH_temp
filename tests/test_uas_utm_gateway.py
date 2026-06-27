@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from uas_utm_gateway.bidirectional_gateway import BidirectionalMavlinkGateway, Endpoint
-from uas_utm_gateway.mavlink_builder import CRC_EXTRA, MESSAGE_IDS, build_command_long_frames, build_mavlink2_frame, x25_checksum
+from uas_utm_gateway.mavlink_builder import CRC_EXTRA, MESSAGE_IDS, build_command_long_frames, build_mavlink2_frame, build_mission_count_frame, x25_checksum
 from uas_utm_gateway.mavlink_parser import ParsedMavlinkFrame, parse_datagram
+from uas_utm_gateway.mock_smoke_test import build_command_ack_frame, build_global_position_int_frame
 from uas_utm_gateway.translator import MavlinkTelemetryTranslator, local_position_from_wgs84_int
 
 
@@ -169,6 +170,77 @@ class UasUtmGatewayTests(unittest.TestCase):
         self.assertEqual(len(fake_sock.sent), 1)
         self.assertEqual(fake_client.acks[0]["edge_id"], "mavlink-edge-small-dronebot-01")
         self.assertEqual(fake_client.acks[0]["result"], "MAV_RESULT_ACCEPTED")
+
+
+    def test_build_mission_count_outbound_frame(self) -> None:
+        upload = {
+            "upload_id": "upload-1",
+            "asset_id": "small-dronebot-01",
+            "mavlink_items": [{"fields": {}}, {"fields": {}}],
+        }
+
+        frame = build_mission_count_frame(upload=upload, system_id=31, component_id=1, sequence=11)
+        parsed = parse_datagram(frame.frame)
+
+        self.assertEqual(frame.message_name, "MISSION_COUNT")
+        self.assertEqual(parsed[0].message_name, "MISSION_COUNT")
+        self.assertEqual(parsed[0].message_id, 44)
+
+    def test_bidirectional_gateway_mission_handshake_records_ack(self) -> None:
+        gateway = BidirectionalMavlinkGateway(
+            scenario_path=ROOT / "scenarios" / "korea_defense_uas_utm_ops.json",
+            service_url="http://127.0.0.1:8080",
+            listen_host="127.0.0.1",
+            listen_port=0,
+        )
+        fake_client = _FakeServiceClient()
+        fake_sock = _FakeSocket()
+        endpoint = Endpoint("127.0.0.1", 14610)
+        gateway.client = fake_client
+        gateway.endpoint_by_asset_id["small-dronebot-01"] = endpoint
+        upload = {
+            "upload_id": "upload-1",
+            "asset_id": "small-dronebot-01",
+            "mavlink_items": [
+                {"fields": {"seq": 0, "x": 376000100, "y": 1271000200, "z": 90, "command": "MAV_CMD_NAV_WAYPOINT"}},
+                {"fields": {"seq": 1, "x": 376000200, "y": 1271000300, "z": 100, "command": "MAV_CMD_NAV_WAYPOINT"}},
+            ],
+        }
+
+        gateway._send_mission_upload(fake_sock, upload)
+        count_frame = parse_datagram(fake_sock.sent[0][0])[0]
+        request_payload = struct.pack("<HBBB", 1, 255, 190, 0)
+        request_frame = _mavlink2_frame(seq=12, system_id=31, component_id=1, message_id=51, payload=request_payload)
+        gateway.handle_datagram(fake_sock, request_frame, endpoint)
+        item_frame = parse_datagram(fake_sock.sent[1][0])[0]
+        ack_payload = struct.pack("<BBB", 255, 190, 0)
+        ack_frame = _mavlink2_frame(seq=13, system_id=31, component_id=1, message_id=47, payload=ack_payload)
+        gateway.handle_datagram(fake_sock, ack_frame, endpoint)
+
+        self.assertEqual(count_frame.message_name, "MISSION_COUNT")
+        self.assertEqual(item_frame.message_name, "MISSION_ITEM_INT")
+        self.assertEqual(fake_client.acks[0]["object_type"], "mission_upload")
+        self.assertEqual(fake_client.acks[0]["result"], "MISSION_ACK_0")
+
+    def test_mock_smoke_test_builds_parseable_frames(self) -> None:
+        position = build_global_position_int_frame(
+            seq=1,
+            system_id=31,
+            component_id=1,
+            lat_e7=376000000,
+            lon_e7=1271000000,
+            alt_m=90,
+            vx_cm_s=120,
+        )
+        ack = build_command_ack_frame(seq=2, system_id=31, component_id=1, command_id=193, result=0)
+
+        parsed_position = parse_datagram(position)[0]
+        parsed_ack = parse_datagram(ack)[0]
+
+        self.assertEqual(parsed_position.message_name, "GLOBAL_POSITION_INT")
+        self.assertEqual(parsed_position.fields["alt"], 90000)
+        self.assertEqual(parsed_ack.message_name, "COMMAND_ACK")
+        self.assertEqual(parsed_ack.fields["command"], 193)
 
     def test_local_position_from_wgs84_int_inverse_mapping(self) -> None:
         x, y, z = local_position_from_wgs84_int(

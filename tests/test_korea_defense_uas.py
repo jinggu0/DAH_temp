@@ -24,6 +24,7 @@ class KoreaDefenseUasUpgradeTests(unittest.TestCase):
         self.assertIn("rq101-corps-route-survey", approved)
         self.assertIn("dronebot-local-recon", approved)
         self.assertIn("naval-vtol-coastal-watch", approved)
+        self.assertIn("ugv-convoy-route-clearance", approved)
         self.assertIn("invalid-airport-buffer-sample", rejected)
         self.assertTrue(any("no_fly_zone:civil-airport-buffer" in reason for reason in rejected["invalid-airport-buffer-sample"]))
 
@@ -32,12 +33,13 @@ class KoreaDefenseUasUpgradeTests(unittest.TestCase):
         result = run_environment(scenario)
         summary = summarize_result(result)
 
-        self.assertEqual(summary["asset_count"], 4)
-        self.assertEqual(summary["c2_node_count"], 3)
+        self.assertEqual(summary["asset_count"], 5)
+        self.assertEqual(summary["c2_node_count"], 4)
         self.assertGreater(summary["link_coverage_rate"], 0.95)
         self.assertIn("UTM_GLOBAL_POSITION", summary["mavlink_message_counts"])
         self.assertIn("GLOBAL_POSITION_INT", summary["mavlink_message_counts"])
         self.assertIn("MISSION_CURRENT", summary["mavlink_message_counts"])
+        self.assertIn("ugv_ground_rover", summary["platform_classes"])
 
     def test_approved_missions_can_be_rendered_as_mission_item_int(self) -> None:
         scenario = load_scenario(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")

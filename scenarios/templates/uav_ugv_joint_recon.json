@@ -1,0 +1,184 @@
+{
+    "name":  "uav_ugv_joint_recon_template",
+    "duration_s":  360,
+    "step_s":  2,
+    "conflict_distance_m":  80,
+    "origin_lat_e7":  376000000,
+    "origin_lon_e7":  1271000000,
+    "assets":  [
+                   {
+                       "id":  "template-uav-01",
+                       "callsign":  "UAV-TEMPLATE-01",
+                       "start":  [
+                                     -500,
+                                     -200,
+                                     120
+                                 ],
+                       "cruise_speed_mps":  18,
+                       "min_altitude_m":  60,
+                       "max_altitude_m":  500,
+                       "battery_capacity_wh":  900,
+                       "platform_class":  "small_uas",
+                       "role":  "local aerial reconnaissance",
+                       "datalink_profiles":  [
+                                                 "mavlink_udp",
+                                                 "lte_tactical"
+                                             ],
+                       "sensor_payloads":  [
+                                               "eo",
+                                               "video_downlink",
+                                               "gps"
+                                           ],
+                       "endurance_s":  2400,
+                       "system_id":  61,
+                       "component_id":  1
+                   },
+                   {
+                       "id":  "template-ugv-01",
+                       "callsign":  "UGV-TEMPLATE-01",
+                       "start":  [
+                                     -700,
+                                     -700,
+                                     0
+                                 ],
+                       "cruise_speed_mps":  6,
+                       "min_altitude_m":  0,
+                       "max_altitude_m":  20,
+                       "battery_capacity_wh":  3600,
+                       "platform_class":  "ugv_ground_rover",
+                       "role":  "ground route clearance",
+                       "datalink_profiles":  [
+                                                 "mavlink_udp",
+                                                 "mesh_ground"
+                                             ],
+                       "sensor_payloads":  [
+                                               "eo",
+                                               "lidar",
+                                               "video_downlink"
+                                           ],
+                       "endurance_s":  7200,
+                       "system_id":  62,
+                       "component_id":  1
+                   }
+               ],
+    "c2_nodes":  [
+                     {
+                         "id":  "template-joint-c2",
+                         "kind":  "joint_uas_ugv_control",
+                         "location":  [
+                                          -600,
+                                          -500,
+                                          20
+                                      ],
+                         "coverage_radius_m":  1800,
+                         "supported_links":  [
+                                                 "mavlink_udp",
+                                                 "lte_tactical",
+                                                 "mesh_ground"
+                                             ],
+                         "latency_ms":  60,
+                         "authority":  "Joint UTM Cell"
+                     }
+                 ],
+    "zones":  [
+                  {
+                      "id":  "template-operating-box",
+                      "kind":  "operating_area",
+                      "x_min":  -1200,
+                      "x_max":  1200,
+                      "y_min":  -1200,
+                      "y_max":  1200,
+                      "min_altitude_m":  0,
+                      "max_altitude_m":  600,
+                      "label":  "UAV/UGV joint operation template box",
+                      "controlling_authority":  "Joint UTM Cell"
+                  },
+                  {
+                      "id":  "template-ugv-ground-corridor",
+                      "kind":  "operating_area",
+                      "x_min":  -780,
+                      "x_max":  -80,
+                      "y_min":  -760,
+                      "y_max":  -360,
+                      "min_altitude_m":  -2,
+                      "max_altitude_m":  10,
+                      "label":  "Template UGV ground route corridor",
+                      "controlling_authority":  "Joint UTM Cell"
+                  }
+              ],
+    "missions":  [
+                     {
+                         "id":  "template-uav-recon",
+                         "asset_id":  "template-uav-01",
+                         "requested_start_s":  10,
+                         "requested_end_s":  240,
+                         "nominal_speed_mps":  18,
+                         "purpose":  "aerial route reconnaissance",
+                         "mission_type":  "UAV_RECON",
+                         "priority":  2,
+                         "control_mode":  "auto",
+                         "required_payloads":  [
+                                                   "eo",
+                                                   "video_downlink"
+                                               ],
+                         "required_link":  "lte_tactical",
+                         "corridor_width_m":  60,
+                         "route":  [
+                                       [
+                                           -500,
+                                           -200,
+                                           120
+                                       ],
+                                       [
+                                           -100,
+                                           -100,
+                                           140
+                                       ],
+                                       [
+                                           300,
+                                           -260,
+                                           160
+                                       ]
+                                   ]
+                     },
+                     {
+                         "id":  "template-ugv-clearance",
+                         "asset_id":  "template-ugv-01",
+                         "requested_start_s":  30,
+                         "requested_end_s":  300,
+                         "nominal_speed_mps":  6,
+                         "purpose":  "ground route clearance",
+                         "mission_type":  "UGV_CLEARANCE",
+                         "priority":  2,
+                         "control_mode":  "assisted",
+                         "required_payloads":  [
+                                                   "eo",
+                                                   "lidar"
+                                               ],
+                         "required_link":  "mesh_ground",
+                         "corridor_width_m":  35,
+                         "route":  [
+                                       [
+                                           -700,
+                                           -700,
+                                           0
+                                       ],
+                                       [
+                                           -500,
+                                           -620,
+                                           0
+                                       ],
+                                       [
+                                           -280,
+                                           -500,
+                                           0
+                                       ],
+                                       [
+                                           -120,
+                                           -420,
+                                           0
+                                       ]
+                                   ]
+                     }
+                 ]
+}

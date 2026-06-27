@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -12,15 +12,19 @@ from uas_utm_edge import EdgeRegistry
 from uas_utm.models import TelemetryFrame
 from uas_utm.simulator import load_scenario, run_environment, summarize_result
 
+from .log_store import JsonlAuditStore, agent_observation
+
 
 class ServiceState:
-    def __init__(self, scenario_path: Path):
+    def __init__(self, scenario_path: Path, log_dir: Path | None = None):
         self.scenario_path = scenario_path
         self._lock = Lock()
         self.external_frames: dict[str, dict[str, Any]] = {}
         self.command_queue: dict[str, dict[str, Any]] = {}
         self.mission_upload_queue: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict[str, Any]] = []
+        self.runtime_log: list[dict[str, Any]] = []
+        self.audit_store = JsonlAuditStore(log_dir or Path("logs/uas_utm"))
         self.edge_registry = EdgeRegistry(self)
         self.source_registry: dict[str, dict[str, Any]] = {
             "simulation": {
@@ -361,11 +365,127 @@ class ServiceState:
             uploads = [upload for upload in uploads if upload["status"] == status]
         return {"mission_uploads": uploads}
 
-    def audit_payload(self, limit: int = 100) -> dict[str, Any]:
+    def audit_payload(self, limit: int = 100, event_type: str | None = None) -> dict[str, Any]:
         with self._lock:
-            rows = self.audit_log[-limit:]
-        return {"audit": rows, "limit": limit}
+            memory_rows = self.audit_log[-limit:]
+            persisted_rows = self.audit_store.tail(limit=limit, event_type=event_type)
+        rows = persisted_rows or memory_rows
+        if event_type and not persisted_rows:
+            rows = [row for row in rows if row.get("event_type") == event_type]
+        return {
+            "audit": rows[-max(1, limit) :],
+            "limit": limit,
+            "event_type": event_type,
+            "storage": self.audit_store.status(),
+        }
 
+
+    def protocol_logs_payload(self, limit: int = 100, include_heartbeat: bool = True) -> dict[str, Any]:
+        audit = self.audit_payload(limit=max(limit * 5, limit)).get("audit", [])
+        rows = []
+        for row in audit:
+            if not include_heartbeat and row.get("event_type") == "edge_device.heartbeat":
+                continue
+            rows.append(_protocol_log_row(row))
+        rows = rows[-max(1, limit) :]
+        return {
+            "schema_version": "uas-utm-protocol-log.v1",
+            "limit": limit,
+            "include_heartbeat": include_heartbeat,
+            "count": len(rows),
+            "protocol_logs": rows,
+        }
+    def agent_logs_payload(
+        self,
+        limit: int = 100,
+        event_type: str | None = None,
+        phase: str | None = None,
+        include_heartbeat: bool = True,
+    ) -> dict[str, Any]:
+        audit = self.audit_payload(limit=max(limit * 5, limit), event_type=event_type)
+        observations = [row.get("agent_view") or agent_observation(row) for row in audit["audit"]]
+        if phase:
+            observations = [item for item in observations if item.get("phase") == phase]
+        if not include_heartbeat:
+            observations = [item for item in observations if item.get("event_type") != "edge_device.heartbeat"]
+        observations = observations[-max(1, limit) :]
+        return {
+            "schema_version": "uas-utm-agent-observation.v1",
+            "limit": limit,
+            "event_type": event_type,
+            "phase": phase,
+            "include_heartbeat": include_heartbeat,
+            "observation_count": len(observations),
+            "observations": observations,
+            "safety_scope": "competition simulation planning and defensive analysis only",
+        }
+
+    def record_runtime_log(self, *, source: str, message: str, level: str = "info", data: dict[str, Any] | None = None) -> None:
+        row = {
+            "timestamp_utc": _now(),
+            "source": source,
+            "level": level,
+            "message": message,
+            "data": data or {},
+        }
+        with self._lock:
+            self.runtime_log.append(row)
+            if len(self.runtime_log) > 500:
+                self.runtime_log = self.runtime_log[-500:]
+
+    def runtime_logs_payload(self, limit: int = 100) -> dict[str, Any]:
+        with self._lock:
+            rows = list(self.runtime_log[-max(1, limit) :])
+        return {
+            "schema_version": "uas-utm-runtime-log.v1",
+            "limit": limit,
+            "count": len(rows),
+            "runtime_logs": rows,
+        }
+    def logs_status_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self.audit_store.status()
+
+    def verify_logs_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self.audit_store.verify()
+
+    def baseline_export_payload(self, limit: int = 500) -> dict[str, Any]:
+        final_time_s = self.timeline[-1] if self.timeline else 0
+        telemetry_rows = []
+        for frame in self.result.telemetry[: max(0, limit)]:
+            telemetry_rows.append(
+                {
+                    "type": "telemetry_frame",
+                    "time_s": frame.time_s,
+                    "asset_id": frame.asset_id,
+                    "mission_id": frame.mission_id,
+                    "status": frame.status,
+                    "position": list(frame.position),
+                    "velocity_mps": list(frame.velocity_mps),
+                    "c2_node_id": frame.c2_node_id,
+                    "link_profile": frame.link_profile,
+                }
+            )
+        return {
+            "generated_at_utc": _now(),
+            "scenario": self.scenario_payload(),
+            "summary": self.summary,
+            "decisions": self.decisions_payload(),
+            "final_tracks": self.tracks_payload(final_time_s),
+            "edge_devices": self.edge_devices_payload(),
+            "audit": self.audit_payload(limit).get("audit", []),
+            "log_storage": self.logs_status_payload(),
+            "log_integrity": self.verify_logs_payload(),
+            "agent_observations": self.agent_logs_payload(limit).get("observations", []),
+            "telemetry_jsonl": telemetry_rows,
+            "mavlink_message_counts": self.summary.get("mavlink_message_counts", {}),
+            "baseline_notes": [
+                "normal_operation_only",
+                "approved_work_queue_only",
+                "uav_ugv_joint_tracking_enabled",
+            ],
+        }
     def _source_sample_from_frame(self, frame: TelemetryFrame, time_s: int) -> dict[str, Any]:
         registry = self.source_registry["simulation"]
         return {
@@ -452,15 +572,8 @@ class ServiceState:
         }
 
     def _audit(self, event_type: str, data: dict[str, Any]) -> None:
-        self.audit_log.append(
-            {
-                "event_id": str(uuid4()),
-                "event_type": event_type,
-                "timestamp_utc": _now(),
-                "object_id": data.get("command_id") or data.get("upload_id") or data.get("mission_id"),
-                "status": data.get("status"),
-            }
-        )
+        row = self.audit_store.append(event_type=event_type, data=data)
+        self.audit_log.append(row)
 
     def _known_asset_ids(self) -> set[str]:
         asset_ids = {asset.id for asset in self.scenario.assets}
@@ -499,6 +612,79 @@ class ServiceState:
         return min(self.timeline, key=lambda item: abs(item - requested_time_s))
 
 
+def _protocol_log_row(row: dict[str, Any]) -> dict[str, Any]:
+    data = row.get("data", {}) if isinstance(row.get("data"), dict) else {}
+    agent_view = row.get("agent_view", {}) if isinstance(row.get("agent_view"), dict) else {}
+    event_type = str(row.get("event_type", "unknown"))
+    return {
+        "timestamp_utc": row.get("timestamp_utc") or row.get("created_at"),
+        "event_id": row.get("event_id"),
+        "event_type": event_type,
+        "direction": _protocol_direction(event_type),
+        "transport": _protocol_transport(event_type, data),
+        "message_type": _protocol_message_type(event_type, data),
+        "actor": row.get("actor"),
+        "object_type": row.get("object_type"),
+        "object_id": row.get("object_id"),
+        "asset_id": data.get("asset_id"),
+        "mission_id": data.get("mission_id"),
+        "status": data.get("status") or data.get("result") or row.get("outcome"),
+        "risk_score": agent_view.get("risk_score"),
+        "labels": agent_view.get("labels", []),
+        "summary": _protocol_summary(event_type, data),
+    }
+
+
+def _protocol_direction(event_type: str) -> str:
+    if event_type.endswith(".requested"):
+        return "operator_to_utm"
+    if event_type.endswith(".approved") or event_type.endswith(".rejected"):
+        return "approver_to_utm"
+    if event_type.startswith("edge_device."):
+        return "edge_to_utm"
+    if event_type == "edge_work.acknowledged":
+        return "edge_to_utm_ack"
+    return "service_internal"
+
+
+def _protocol_transport(event_type: str, data: dict[str, Any]) -> str:
+    if event_type == "edge_work.acknowledged":
+        return "REST_JSON_ACK"
+    if event_type.startswith("edge_device."):
+        return "REST_JSON_EDGE"
+    if event_type.startswith("command."):
+        return "REST_JSON_TO_MAVLINK_COMMAND"
+    if event_type.startswith("mission_upload."):
+        return "REST_JSON_TO_MAVLINK_MISSION"
+    return "REST_JSON"
+
+
+def _protocol_message_type(event_type: str, data: dict[str, Any]) -> str:
+    if event_type.startswith("command."):
+        command = data.get("mavlink_command", {}) if isinstance(data.get("mavlink_command"), dict) else {}
+        return str(command.get("message_name") or "COMMAND_LONG")
+    if event_type.startswith("mission_upload."):
+        return "MISSION_ITEM_INT"
+    if event_type == "edge_work.acknowledged":
+        return "WORK_ACK"
+    if event_type == "edge_device.registered":
+        return "EDGE_REGISTER"
+    if event_type == "edge_device.heartbeat":
+        return "EDGE_HEARTBEAT"
+    return event_type.upper().replace(".", "_")
+
+
+def _protocol_summary(event_type: str, data: dict[str, Any]) -> str:
+    if event_type.startswith("command."):
+        return f"{event_type} {data.get('command_type', '-')} for {data.get('asset_id', '-')}"
+    if event_type.startswith("mission_upload."):
+        count = len(data.get("mavlink_items", [])) if isinstance(data.get("mavlink_items"), list) else 0
+        return f"{event_type} {data.get('mission_id', '-')} for {data.get('asset_id', '-')} items={count}"
+    if event_type.startswith("edge_device."):
+        return f"{event_type} {data.get('edge_id', '-')} status={data.get('status', '-')}"
+    if event_type == "edge_work.acknowledged":
+        return f"ack {data.get('object_type', '-')}:{data.get('object_id', '-')} by {data.get('edge_id', '-')} result={data.get('result', '-')}"
+    return event_type
 def _required_str(payload: dict[str, Any], key: str) -> str:
     value = str(payload.get(key, "")).strip()
     if not value:
@@ -526,6 +712,3 @@ def _command_to_mavlink(command_type: str, params: Any) -> dict[str, Any]:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-

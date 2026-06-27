@@ -38,6 +38,7 @@ UTM UI/API
 송신:
 
 - `COMMAND_LONG`
+- `MISSION_COUNT`
 - `MISSION_ITEM_INT`
 
 현재 builder는 MAVLink v2 header, common.xml CRC extra 기반 X.25 checksum, 선택적 MAVLink2 signing trailer를 생성한다. `--signing-key-hex`를 지정하지 않으면 unsigned MAVLink2 frame을 송신한다.
@@ -83,3 +84,17 @@ mavlink-routerd -e <kali-ip>:14551 /dev/ttyACM0:57600
 - gateway는 마지막으로 telemetry를 보낸 endpoint를 asset별 송신 대상으로 기억한다.
 - `COMMAND_ACK`를 받으면 `/api/edge/work/ack`로 감사 로그에 남긴다.
 - 실제 장비 actuation 전 local safety interlock은 외부 edge/autopilot 계층에서 검증해야 한다.
+## Mission handshake
+
+Mission upload는 즉시 모든 waypoint를 밀어 넣지 않고 아래 순서를 따른다.
+
+```text
+UTM approved mission upload
+  -> gateway sends MISSION_COUNT
+  <- vehicle sends MISSION_REQUEST_INT(seq=N)
+  -> gateway sends MISSION_ITEM_INT(seq=N)
+  <- vehicle sends MISSION_ACK
+  -> gateway records /api/edge/work/ack
+```
+
+이 흐름은 PX4/ArduPilot 계열 mission protocol에 맞춘 기본 상호작용이며, 실제 장비 연동 시 mission type, fence/rally, partial mission 등은 추가 검증이 필요하다.

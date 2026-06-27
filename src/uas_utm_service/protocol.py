@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 PROFILE_NAME = "TTA-UAS-UTM-SIM"
-PROFILE_VERSION = "1.4"
+PROFILE_VERSION = "1.5"
 
 
 def envelope(
@@ -71,6 +71,12 @@ def protocol_profile() -> dict[str, Any]:
             "utm.mission_upload.request",
             "utm.mission_upload.approve",
             "utm.audit",
+            "utm.logs.agent_view",
+            "utm.protocol.logs",
+            "utm.runtime.logs",
+            "utm.logs.status",
+            "utm.logs.verify",
+            "utm.baseline.export",
         ],
         "telemetry_ingest_payload": {
             "asset_id": "string, required",
@@ -127,6 +133,36 @@ def protocol_profile() -> dict[str, Any]:
             "requested_by": "operator id",
             "output": "MISSION_ITEM_INT list queued for gateway",
         },
+        "log_storage_payload": {
+            "storage_model": "append_only_jsonl",
+            "event_schema": "uas-utm-audit-log.v1",
+            "integrity": "sha256 previous_hash/event_hash chain",
+            "redaction": "password/token/secret/credential/key/signature fields are redacted before storage",
+            "endpoints": ["/api/logs", "/api/logs/agent-view", "/api/protocol/logs", "/api/logs/status", "/api/logs/verify"],
+        },
+        "protocol_log_payload": {
+            "schema_version": "uas-utm-protocol-log.v1",
+            "endpoint": "/api/protocol/logs?limit=80&include_heartbeat=false",
+            "fields": ["timestamp_utc", "event_type", "direction", "transport", "message_type", "actor", "asset_id", "mission_id", "status", "risk_score", "summary"],
+            "purpose": "dashboard-readable protocol execution timeline derived from the append-only audit log",
+        },
+        "runtime_log_payload": {
+            "schema_version": "uas-utm-runtime-log.v1",
+            "endpoint": "/api/runtime/logs?limit=120",
+            "purpose": "dashboard-readable service access log mirroring container stdout request lines",
+        },
+        "agent_observation_payload": {
+            "schema_version": "uas-utm-agent-observation.v1",
+            "fields": ["event_family", "phase", "perspectives", "risk_score", "labels", "features", "defense_questions", "scenario_hooks"],
+            "safety_scope": "competition simulation planning and defensive analysis only",
+        },
+        "baseline_export_payload": {
+            "scenario": "scenario definition used for DAH baseline replay",
+            "summary": "mission approval, track, C2, and MAVLink counts",
+            "telemetry_jsonl": "normal-operation telemetry rows for reporting",
+            "audit": "operator, approver, edge and gateway events",
+            "log_storage": "persistent JSONL storage status and integrity metadata",
+        },
         "mavlink_mapping": {
             "heartbeat": "HEARTBEAT",
             "position": "GLOBAL_POSITION_INT",
@@ -147,4 +183,3 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_normalize(item) for item in value]
     return value
-
