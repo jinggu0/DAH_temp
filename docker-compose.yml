@@ -57,6 +57,12 @@ services:
       dah-tactical-net: {}
     environment:
       PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   dah-uav-sim:
     build: .
@@ -66,7 +72,8 @@ services:
       - -m
       - dah_services.uav_sim_service
     depends_on:
-      - dah-gcs
+      dah-gcs:
+        condition: service_healthy
     networks:
       - dah-asset-net
       - dah-ops-net
@@ -81,7 +88,8 @@ services:
       - -m
       - dah_services.ugv_sim_service
     depends_on:
-      - dah-gcs
+      dah-gcs:
+        condition: service_healthy
     networks:
       - dah-asset-net
       - dah-ops-net
@@ -104,7 +112,8 @@ services:
     ports:
       - "14550:14550/udp"
     depends_on:
-      - dah-gcs
+      dah-gcs:
+        condition: service_healthy
     networks:
       - dah-asset-net
       - dah-ops-net
@@ -127,7 +136,8 @@ services:
     ports:
       - "14551:14551/udp"
     depends_on:
-      - dah-gcs
+      dah-gcs:
+        condition: service_healthy
     networks:
       - dah-asset-net
       - dah-ops-net

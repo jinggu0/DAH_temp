@@ -23,18 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     client = EdgeClient(args.service_url.rstrip("/"))
-    registration = client.post(
-        "/api/edge/devices/register",
-        {
-            "edge_id": args.edge_id,
-            "device_type": args.device_type,
-            "asset_ids": args.assets,
-            "authority": args.authority,
-            "link_profiles": args.link_profiles,
-            "capabilities": ["telemetry_ingest", "approved_work_poll", "ack_work"],
-            "software_version": args.software_version,
-        },
-    )
+    registration = _register_with_retry(client, args)
     print(json.dumps({"registered": registration["payload"]}, ensure_ascii=False))
 
     while True:
@@ -81,6 +70,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.once:
             return 0
         time.sleep(args.interval_s)
+
+
+def _register_with_retry(client: "EdgeClient", args: argparse.Namespace, max_retries: int = 10, delay_s: float = 3.0) -> dict[str, Any]:
+    payload = {
+        "edge_id": args.edge_id,
+        "device_type": args.device_type,
+        "asset_ids": args.assets,
+        "authority": args.authority,
+        "link_profiles": args.link_profiles,
+        "capabilities": ["telemetry_ingest", "approved_work_poll", "ack_work"],
+        "software_version": args.software_version,
+    }
+    for attempt in range(1, max_retries + 1):
+        try:
+            return client.post("/api/edge/devices/register", payload)
+        except SystemExit as exc:
+            if attempt >= max_retries or "connection failed" not in str(exc):
+                raise
+            print(f"[edge-agent] GCS not ready (attempt {attempt}/{max_retries}), retrying in {delay_s}s...")
+            time.sleep(delay_s)
+    raise SystemExit("edge-agent: exceeded max retries for GCS registration")
 
 
 class EdgeClient:
