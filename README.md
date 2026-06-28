@@ -87,3 +87,133 @@ Dockerfile
 - 본선 진출팀 발표: 2026-07-31
 - 본선 예정: 2026-08-21
 - 평가 중심: 공격 시나리오 30점, 방어 전략 25점, AI 에이전트 아키텍처 25점
+
+## Docker Desktop Tactical Chain Run
+
+This repository can run as a local Docker Desktop demo with visible DAH role containers. The tactical network roles are emulators only; this project does not connect to real TICN, TMMR, Korean military C2/BMS, real radios, or real vehicle actuators.
+
+Default run:
+
+```bash
+docker compose up -d --build
+```
+
+Dashboard entrypoint:
+
+```text
+http://localhost:9000
+```
+
+Existing UAS/UTM compatibility endpoint:
+
+```text
+http://localhost:8080
+```
+
+Dashboard panels added for DAH scenario briefing:
+
+- Top role cards: UAV Simulator, UGV Simulator, GCS/Ground Gateway, C2 Data Link, Tactical Router, TMMR Emulator, TICN-like Network, Upper C2/BMS, Defense Agent, Telemetry Collector.
+- Chain view: UAV/UGV -> C2 Data Link -> GCS -> Tactical Router -> TMMR Emulator -> TICN-like Network -> Upper C2/BMS.
+- Operator panels: alerts, defense decisions, fault injection events, recommended responses, Docker service status, command log, tactical message log, protocol/runtime logs.
+- API snapshot: `GET /api/service-status` returns the dashboard service/container role state and marks emulator-only boundaries.
+
+Expected default containers:
+
+```text
+dah-gateway
+dah-dashboard
+dah-gcs
+dah-uav-sim
+dah-ugv-sim
+dah-mavlink-gateway
+dah-bidir-mavlink-gateway
+dah-tactical-router
+dah-tmmr-emulator
+dah-ticn-emulator
+dah-upper-c2
+dah-telemetry-collector
+dah-defense-agent
+```
+
+Cyber lab profile, simulation-only fault demo role:
+
+```bash
+docker compose --profile cyber-lab up -d --build
+```
+
+Sample edge profile:
+
+```bash
+docker compose --profile sample-edge up -d --build
+```
+
+Stop:
+
+```bash
+docker compose down
+```
+
+Test:
+
+```bash
+python -m unittest discover -s tests
+```
+
+Implementation boundary:
+
+- Real/local: UAS/UGV telemetry ingest, MAVLink-compatible local UDP parsing, GCS approval queues, mission upload dry-run, audit/runtime/protocol logs.
+- Emulator only: Tactical Router/TIPS, TMMR, TICN-like Network, Upper C2/BMS, local fault injection and anomaly metrics.
+- Not implemented: real military network integration, real TICN/TMMR protocols, real wireless attack, host network manipulation, real actuator commands.
+
+## DAH Training Scenario Pack
+
+Defensive scenario documentation and repeatable local scenario JSON files are available for briefing and AI-agent dataset preparation:
+
+- `docs/vulnerabilities.md`: defensive-only notes for allowlisted local fault profiles.
+- `docs/scenarios.md`: run flows, expected logs, AI-agent labels, and reporting template.
+- `scenarios/dah_training/mavlink_telemetry_monitoring.json`
+- `scenarios/dah_training/mission_upload_guard.json`
+- `scenarios/dah_training/tactical_chain_degradation.json`
+
+Validate a training scenario:
+
+```bash
+PYTHONPATH=src python -m uas_utm.scenario_report --scenario scenarios/dah_training/mavlink_telemetry_monitoring.json --markdown-output output/reports/mavlink_telemetry_monitoring.md
+```
+
+Package evidence:
+
+```bash
+PYTHONPATH=src python -m uas_utm.scenario_package --scenario scenarios/dah_training/mavlink_telemetry_monitoring.json --output-dir output/scenario-packages
+```
+
+Package all DAH training scenarios at once:
+
+```bash
+PYTHONPATH=src python -m uas_utm.scenario_batch --scenario-dir scenarios/dah_training --output-dir output/scenario-packages
+```
+
+Generate or refresh briefing templates from the package index:
+
+```bash
+PYTHONPATH=src python -m uas_utm.scenario_briefing --index output/scenario-packages/index.json
+```
+
+More details:
+
+- `docs/repo_gap_analysis.md`
+- `docs/docker_desktop_runbook.md`
+- `docs/service_map.md`
+
+## Phase 3 Service Boundary
+
+The Docker role containers now map to explicit Python wrapper modules under `src/dah_services`. These wrappers keep the existing working APIs intact while making future service extraction safer.
+
+Common runtime support lives under `src/dah_runtime`:
+
+- `service_contracts.py`: shared status, telemetry, command, tactical message, fault, and alert payloads.
+- `health.py`: status and health payload helpers.
+- `jsonl_store.py`: append-only JSONL store.
+- `event_bus.py`: in-memory or JSONL-backed event bus.
+
+This phase does not add real tactical network integration. TMMR, TICN-like Network, Tactical Router/TIPS, Upper C2/BMS, and fault injection remain emulator/simulation-only.

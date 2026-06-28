@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -177,32 +178,90 @@ class ServiceState:
         with self._lock:
             return self.edge_registry.acknowledge(message)
 
+    def service_status_payload(self) -> dict[str, Any]:
+        edge_payload = self.edge_devices_payload()
+        alerts = self.alerts_payload(limit=20)
+        chain = self.chain_payload()
+        component_status = {item["id"]: item for item in chain["nodes"]}
+        uav_count = sum(1 for item in edge_payload["edge_devices"] if "uav" in str(item.get("device_type", "")).lower())
+        ugv_count = sum(1 for item in edge_payload["edge_devices"] if "ugv" in str(item.get("device_type", "")).lower())
+        statuses = [
+            _service_status("dah-uav-sim", "UAV Simulator", "uav_mock_or_sitl_ready", "normal" if uav_count else "degraded", False, "REAL UAS INTEGRATION POSSIBLE / MOCK MODE", {"registered_edges": uav_count}),
+            _service_status("dah-ugv-sim", "UGV Simulator", "ugv_mock_telemetry", "normal" if ugv_count else "degraded", False, "REAL UGV INTEGRATION POSSIBLE / MOCK MODE", {"registered_edges": ugv_count}),
+            _service_status("dah-gcs", "GCS / Ground Gateway", "telemetry_ingest_command_queue_mission_upload", "normal", False, "LOCAL GCS/UTM SERVICE", {"commands": len(self.command_queue), "mission_uploads": len(self.mission_upload_queue)}),
+            _service_status("dah-mavlink-gateway", "C2 Data Link", "mavlink_udp_gateway", component_status.get("c2_link", {}).get("status", "normal"), False, "REAL MAVLINK-CAPABLE / LOCAL MOCK", component_status.get("c2_link", {}).get("metrics", {})),
+            _service_status("dah-tactical-router", "Tactical Router", "virtual_tactical_router_tips", component_status.get("router", {}).get("status", "normal"), True, "EMULATED / NOT REAL MILITARY SYSTEM", component_status.get("router", {}).get("metrics", {})),
+            _service_status("dah-tmmr-emulator", "TMMR Emulator", "tmmr_queue_emulator", component_status.get("tmmr", {}).get("status", "normal"), True, "EMULATED / NOT REAL MILITARY SYSTEM", component_status.get("tmmr", {}).get("metrics", {})),
+            _service_status("dah-ticn-emulator", "TICN-like Network", "route_metric_emulator", component_status.get("ticn", {}).get("status", "normal"), True, "EMULATED / NOT REAL MILITARY SYSTEM", component_status.get("ticn", {}).get("metrics", {})),
+            _service_status("dah-upper-c2", "Upper C2/BMS", "upper_c2_bms_simulator", component_status.get("upper_c2", {}).get("status", "normal"), True, "EMULATED / NOT REAL MILITARY SYSTEM; VIA GCS ONLY", component_status.get("upper_c2", {}).get("metrics", {})),
+            _service_status("dah-defense-agent", "Defense Agent", "rule_based_detection_response", "critical" if alerts["critical_count"] else "degraded" if alerts["alert_count"] else "normal", False, "LOCAL DEFENSE MONITOR / DRY-RUN RESPONSE", {"alerts": alerts["alert_count"], "critical_alerts": alerts["critical_count"]}),
+            _service_status("dah-telemetry-collector", "Telemetry Collector", "telemetry_command_fault_audit_log", "normal", False, "LOCAL JSONL LOG COLLECTION", {"storage": "jsonl", "audit_events": len(self.audit_payload(20).get("audit", []))}),
+        ]
+        return {
+            "schema_version": "dah-service-status.v1",
+            "service_statuses": statuses,
+            "count": len(statuses),
+            "docker_service_names": [item["service_id"] for item in statuses],
+            "safety_boundary": "Tactical Router, TMMR, TICN-like Network, and Upper C2/BMS are emulator roles only.",
+        }
+    def scenario_packages_payload(self) -> dict[str, Any]:
+        scenario_dir = _first_existing_path([Path("scenarios/dah_training"), self.scenario_path.parent / "dah_training"])
+        output_dir = Path("output/scenario-packages")
+        scenarios = []
+        for path in sorted(scenario_dir.glob("*.json")) if scenario_dir.exists() else []:
+            raw = _read_json_file(path)
+            intent = raw.get("scenario_intent", {}) if isinstance(raw.get("scenario_intent", {}), dict) else {}
+            scenarios.append(
+                {
+                    "scenario_name": raw.get("name", path.stem),
+                    "scenario_file": _slash(path),
+                    "fault_profile": intent.get("fault_profile", "baseline"),
+                    "training_goal": intent.get("training_goal", "DAH local training scenario"),
+                    "expected_logs": intent.get("expected_logs", []),
+                    "validate_command": f"PYTHONPATH=src python -m uas_utm.scenario_report --scenario {_slash(path)} --markdown-output output/reports/{path.stem}.md",
+                    "package_command": f"PYTHONPATH=src python -m uas_utm.scenario_package --scenario {_slash(path)} --output-dir {_slash(output_dir)}",
+                }
+            )
+        index_path = output_dir / "index.json"
+        index_payload = _read_json_file(index_path) if index_path.exists() else {}
+        return {
+            "schema_version": "dah-scenario-packages.v1",
+            "scenario_dir": _slash(scenario_dir),
+            "output_dir": _slash(output_dir),
+            "count": len(scenarios),
+            "scenarios": scenarios,
+            "batch_command": f"PYTHONPATH=src python -m uas_utm.scenario_batch --scenario-dir {_slash(scenario_dir)} --output-dir {_slash(output_dir)}",
+            "briefing_command": f"PYTHONPATH=src python -m uas_utm.scenario_briefing --index {_slash(index_path)}",
+            "index_available": index_path.exists(),
+            "index_path": _slash(index_path),
+            "last_index": index_payload if index_payload else None,
+            "docs": ["docs/scenarios.md", "docs/vulnerabilities.md", "docs/docker_desktop_runbook.md"],
+            "safety_boundary": "Scenario packaging exports local reports and baseline evidence only; no real tactical network, wireless, or actuator command is executed.",
+        }
     def dashboard_payload(self) -> dict[str, Any]:
         edge_payload = self.edge_devices_payload()
         chain = self.chain_payload()
         alerts = self.alerts_payload(limit=20)
-        uav_devices = [item for item in edge_payload["edge_devices"] if "uav" in str(item.get("device_type", "")).lower()]
-        ugv_devices = [item for item in edge_payload["edge_devices"] if "ugv" in str(item.get("device_type", "")).lower()]
+        service_status = self.service_status_payload()
+        cards = [
+            _status_card(item["label"], item["status"], f"{item['service_id']} / {item['role']}", "emulated" if item["emulated"] else "real_or_mock")
+            for item in service_status["service_statuses"]
+        ]
         return {
             "schema_version": "dah-gcs-dashboard.v1",
-            "title": "DAH UAS/UGV GCS Protocol Monitor",
+            "title": "DAH UAS/UGV Tactical Chain Dashboard",
             "scope": {
                 "real_implementable": ["UAS/UGV telemetry ingest", "MAVLink-compatible parsing", "GCS approval queue", "audit logging"],
                 "emulated_only": ["TMMR role", "TICN-like network role", "Upper C2/BMS role"],
                 "safety_boundary": "Fault injection is local simulation only; no real tactical network, wireless attack, or actuator command is executed.",
             },
-            "cards": [
-                _status_card("UAV Status", _fleet_status(uav_devices), f"{len(uav_devices)} registered UAV edge device(s)", "real_or_mock"),
-                _status_card("UGV Status", _fleet_status(ugv_devices), f"{len(ugv_devices)} registered UGV edge device(s)", "real_or_mock"),
-                _status_card("C2 Data Link", self._component_status("c2_link"), "REST JSON + MAVLink gateway queue", "real_mavlink_capable"),
-                _status_card("TMMR Emulator", self._component_status("tmmr"), "SIMULATED / NOT REAL MILITARY SYSTEM", "simulated"),
-                _status_card("TICN-like Network", self._component_status("ticn"), "SIMULATED / NOT REAL MILITARY SYSTEM", "simulated"),
-                _status_card("Defense Agent", "critical" if alerts["critical_count"] else "degraded" if alerts["alert_count"] else "normal", f"{alerts['alert_count']} active alert(s)", "defense_monitor"),
-            ],
+            "cards": cards,
             "chain": chain,
             "alerts": alerts,
             "fault_allowlist": sorted(ALLOWED_FAULT_TYPES),
             "mavlink_mode": "REAL MAVLINK-CAPABLE / MOCK MODE",
+            "service_statuses": service_status["service_statuses"],
+            "docker_service_names": service_status["docker_service_names"],
         }
 
     def tactical_emulator_payload(self) -> dict[str, Any]:
@@ -811,6 +870,48 @@ class ServiceState:
         return min(self.timeline, key=lambda item: abs(item - requested_time_s))
 
 
+
+def _first_existing_path(paths: list[Path]) -> Path:
+    for path in paths:
+        if path.exists():
+            return path
+    return paths[0]
+
+
+def _read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _slash(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def _service_status(
+    service_id: str,
+    label: str,
+    role: str,
+    status: str,
+    emulated: bool,
+    boundary: str,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "service_id": service_id,
+        "docker_service_name": service_id,
+        "container_name": f"{service_id}-1",
+        "label": label,
+        "role": role,
+        "status": status,
+        "emulated": emulated,
+        "boundary": boundary,
+        "health_url": "/health" if service_id != "dah-gcs" else "/api/health",
+        "status_url": "/status" if service_id != "dah-gcs" else "/api/dashboard",
+        "metrics": metrics or {},
+    }
 def _status_card(label: str, status: str, detail: str, mode: str) -> dict[str, Any]:
     return {"label": label, "status": status, "detail": detail, "mode": mode}
 

@@ -1,0 +1,119 @@
+{
+  "name": "dah_mavlink_telemetry_monitoring",
+  "duration_s": 300,
+  "step_s": 2,
+  "conflict_distance_m": 75,
+  "origin_lat_e7": 376000000,
+  "origin_lon_e7": 1271000000,
+  "scenario_intent": {
+    "training_goal": "Build a normal MAVLink telemetry baseline for UAV/UGV monitoring and detect unauthenticated/plaintext telemetry warnings through the local emulator only.",
+    "fault_profile": "mavlink_plaintext_warning",
+    "expected_logs": ["telemetry.ingested", "protocol_monitor.link_state", "fault.injected", "alert.created"],
+    "safety_boundary": "No real radio, wireless, or actuator traffic is generated. The fault is an application-level local simulation marker."
+  },
+  "assets": [
+    {
+      "id": "telemetry-uav-01",
+      "callsign": "DAH-UAV-TEL-01",
+      "start": [-480, -160, 120],
+      "cruise_speed_mps": 18,
+      "min_altitude_m": 60,
+      "max_altitude_m": 500,
+      "battery_capacity_wh": 1000,
+      "service_branch": "ROKA",
+      "platform_class": "small_uas",
+      "role": "telemetry baseline reconnaissance",
+      "datalink_profiles": ["mavlink_udp", "lte_tactical"],
+      "sensor_payloads": ["eo", "gps", "video_downlink"],
+      "endurance_s": 2400,
+      "system_id": 71,
+      "component_id": 1
+    },
+    {
+      "id": "telemetry-ugv-01",
+      "callsign": "DAH-UGV-TEL-01",
+      "start": [-720, -700, 0],
+      "cruise_speed_mps": 6,
+      "min_altitude_m": 0,
+      "max_altitude_m": 20,
+      "battery_capacity_wh": 3600,
+      "service_branch": "ROKA",
+      "platform_class": "ugv_ground_rover",
+      "role": "ground telemetry baseline",
+      "datalink_profiles": ["mavlink_udp", "mesh_ground"],
+      "sensor_payloads": ["eo", "lidar", "gps"],
+      "endurance_s": 7200,
+      "system_id": 72,
+      "component_id": 1
+    }
+  ],
+  "c2_nodes": [
+    {
+      "id": "telemetry-joint-gcs",
+      "kind": "joint_uas_ugv_control",
+      "location": [-520, -480, 25],
+      "coverage_radius_m": 1900,
+      "supported_links": ["mavlink_udp", "lte_tactical", "mesh_ground"],
+      "latency_ms": 55,
+      "authority": "DAH Local UTM Cell"
+    }
+  ],
+  "zones": [
+    {
+      "id": "telemetry-training-box",
+      "kind": "operating_area",
+      "x_min": -1200,
+      "x_max": 1000,
+      "y_min": -1100,
+      "y_max": 900,
+      "min_altitude_m": 0,
+      "max_altitude_m": 700,
+      "label": "DAH telemetry monitoring operating box",
+      "controlling_authority": "DAH Local UTM Cell"
+    },
+    {
+      "id": "telemetry-ugv-ground-corridor",
+      "kind": "operating_area",
+      "x_min": -780,
+      "x_max": -80,
+      "y_min": -760,
+      "y_max": -340,
+      "min_altitude_m": -2,
+      "max_altitude_m": 10,
+      "label": "DAH UGV ground route corridor",
+      "controlling_authority": "DAH Local UTM Cell"
+    }
+  ],
+  "missions": [
+    {
+      "id": "telemetry-uav-baseline-recon",
+      "asset_id": "telemetry-uav-01",
+      "requested_start_s": 10,
+      "requested_end_s": 220,
+      "nominal_speed_mps": 18,
+      "purpose": "baseline MAVLink telemetry collection",
+      "mission_type": "TELEMETRY_BASELINE",
+      "priority": 2,
+      "control_mode": "auto",
+      "required_payloads": ["eo", "gps"],
+      "required_link": "mavlink_udp",
+      "corridor_width_m": 55,
+      "route": [[-480, -160, 120], [-180, -80, 130], [160, -220, 145], [420, -80, 150]]
+    },
+    {
+      "id": "telemetry-ugv-baseline-route",
+      "asset_id": "telemetry-ugv-01",
+      "requested_start_s": 30,
+      "requested_end_s": 260,
+      "nominal_speed_mps": 6,
+      "purpose": "baseline UGV telemetry and edge heartbeat collection",
+      "mission_type": "UGV_TELEMETRY_BASELINE",
+      "priority": 2,
+      "control_mode": "assisted",
+      "required_payloads": ["eo", "lidar"],
+      "required_link": "mesh_ground",
+      "corridor_width_m": 35,
+      "route": [[-720, -700, 0], [-520, -620, 0], [-320, -520, 0], [-120, -420, 0]]
+    }
+  ]
+}

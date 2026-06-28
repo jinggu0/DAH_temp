@@ -16,6 +16,8 @@ const state = {
   chain: null,
   alerts: null,
   protocolMonitor: null,
+  serviceStatus: null,
+  scenarioPackages: null,
   protocolRuns: [],
   showProtocolHeartbeat: false,
   protocolLogLive: true,
@@ -63,7 +65,7 @@ async function postApi(path, payload) {
 }
 
 async function bootstrap() {
-  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, runtimeLogs, dashboard, chain, alerts, protocolMonitor] = await Promise.all([
+  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, runtimeLogs, dashboard, chain, alerts, protocolMonitor, serviceStatus, scenarioPackages] = await Promise.all([
     api("/api/health"),
     api("/api/protocol"),
     api("/api/scenario"),
@@ -83,6 +85,8 @@ async function bootstrap() {
     api("/api/chain"),
     api("/api/alerts?limit=20"),
     api("/api/protocol-monitor?limit=20"),
+    api("/api/service-status"),
+    api("/api/scenario-packages"),
   ]);
   document.querySelector("#serviceStatus").textContent = health.payload.ok ? "API OK" : "API Error";
   document.querySelector("#protocolText").textContent =
@@ -104,12 +108,18 @@ async function bootstrap() {
   state.chain = chain.payload;
   state.alerts = alerts.payload;
   state.protocolMonitor = protocolMonitor.payload;
+  state.serviceStatus = serviceStatus.payload;
+  state.scenarioPackages = scenarioPackages.payload;
+  document.title = state.dashboard?.title ?? document.title;
   slider.min = 0;
   slider.max = Math.max(0, state.timeline.length - 1);
   slider.value = 0;
   renderGcsSummary();
   renderChain();
   renderAlerts();
+  renderDefenseDecisions();
+  renderFaultEvents();
+  renderRecommendedResponses();
   renderFaultControls();
   renderSummary();
   renderOperationProfile();
@@ -121,7 +131,12 @@ async function bootstrap() {
   renderProtocolRuns();
   renderProtocolLogs();
   renderRuntimeLogs();
+  renderProtocolMonitorSummary();
   renderMavlinkState();
+  renderDockerServiceStatus();
+  renderCommandLog();
+  renderTacticalMessageLog();
+  renderScenarioPackages();
   await loadSnapshot(0);
   startProtocolLogLive();
 }
@@ -161,6 +176,7 @@ function renderChain() {
         <strong>${escapeHtml(item.label)}</strong>
         <span>${escapeHtml(item.status)}</span>
         <small>${escapeHtml(item.boundary)}</small>
+        <small class="chain-metrics">${escapeHtml(metricSummary(item.metrics))}</small>
       </div>
       ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">-></div>' : ''}`)
     .join("");
@@ -190,6 +206,163 @@ function renderAlerts() {
   }
 }
 
+function renderDefenseDecisions() {
+  const list = document.querySelector("#defenseDecisionList");
+  if (!list) return;
+  list.innerHTML = "";
+  const alerts = state.alerts?.alerts ?? [];
+  if (!alerts.length) {
+    appendListText(list, "Normal monitoring / no response action queued");
+    return;
+  }
+  for (const alert of alerts.slice().reverse()) {
+    const item = document.createElement("li");
+    item.className = alert.severity === "critical" ? "rejected" : "pending";
+    item.textContent = `${alert.severity} decision / ${alert.target ?? "system"}`;
+    item.title = alert.recommended_response ?? "Review simulated event";
+    list.appendChild(item);
+  }
+}
+
+function renderFaultEvents() {
+  const list = document.querySelector("#faultEventList");
+  if (!list) return;
+  const faults = state.chain?.emulator?.recent_faults ?? [];
+  list.innerHTML = "";
+  if (!faults.length) {
+    appendListText(list, "No fault injection events");
+    return;
+  }
+  for (const fault of faults.slice().reverse()) {
+    const item = document.createElement("li");
+    item.className = fault.severity === "critical" ? "rejected" : "pending";
+    item.textContent = `${fault.fault_type} / ${fault.target_component ?? fault.target ?? "system"}`;
+    item.title = `${fault.safety_boundary ?? "simulation only"}\n${JSON.stringify(fault.effects ?? {})}`;
+    list.appendChild(item);
+  }
+}
+
+function renderRecommendedResponses() {
+  const list = document.querySelector("#recommendedResponseList");
+  if (!list) return;
+  const alerts = state.alerts?.alerts ?? [];
+  list.innerHTML = "";
+  if (!alerts.length) {
+    appendListText(list, "Continue baseline monitoring");
+    return;
+  }
+  for (const alert of alerts.slice().reverse()) {
+    const item = document.createElement("li");
+    item.className = alert.severity === "critical" ? "rejected" : "pending";
+    item.textContent = alert.recommended_response ?? "Review simulated event";
+    item.title = `${alert.title ?? "alert"} / ${alert.target ?? "system"}`;
+    list.appendChild(item);
+  }
+}
+
+function renderDockerServiceStatus() {
+  const node = document.querySelector("#dockerServiceStatusTable");
+  if (!node) return;
+  const rows = state.serviceStatus?.service_statuses ?? state.dashboard?.service_statuses ?? [];
+  if (!rows.length) {
+    node.innerHTML = '<p class="protocol-text">No Docker service status snapshot</p>';
+    return;
+  }
+  node.innerHTML = `
+    <table>
+      <thead><tr><th>Service</th><th>Container</th><th>Status</th><th>Boundary</th><th>Metrics</th><th>Links</th></tr></thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td><strong>${escapeHtml(row.label)}</strong><br><span class="muted-cell">${escapeHtml(row.role)}</span></td>
+            <td>${escapeHtml(row.container_name ?? row.service_id)}</td>
+            <td><span class="protocol-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+            <td>${escapeHtml(row.boundary)}</td>
+            <td>${escapeHtml(metricSummary(row.metrics))}</td>
+            <td><span class="muted-cell">${escapeHtml(row.health_url ?? "/health")} / ${escapeHtml(row.status_url ?? "/status")}</span></td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function renderCommandLog() {
+  const node = document.querySelector("#commandLogTable");
+  if (!node) return;
+  const rows = state.protocolMonitor?.commands ?? [];
+  if (!rows.length) {
+    node.innerHTML = '<p class="protocol-text">No command events yet</p>';
+    return;
+  }
+  node.innerHTML = `
+    <table>
+      <thead><tr><th>Command</th><th>Asset</th><th>Status</th><th>Dry Run</th><th>Requested By</th></tr></thead>
+      <tbody>
+        ${rows.slice().reverse().map((row) => `
+          <tr>
+            <td>${escapeHtml(row.command_type)}<br><span class="muted-cell">${escapeHtml(row.command_id)}</span></td>
+            <td>${escapeHtml(row.asset_id)}</td>
+            <td><span class="protocol-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+            <td>${escapeHtml(row.dry_run)}</td>
+            <td>${escapeHtml(row.requested_by)}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function renderTacticalMessageLog() {
+  const node = document.querySelector("#tacticalMessageLogTable");
+  if (!node) return;
+  const rows = state.protocolMonitor?.tactical_messages ?? [];
+  if (!rows.length) {
+    node.innerHTML = '<p class="protocol-text">No tactical messages yet</p>';
+    return;
+  }
+  node.innerHTML = `
+    <table>
+      <thead><tr><th>Message</th><th>Route</th><th>Layer</th><th>Priority</th><th>Payload</th></tr></thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.message_type)}<br><span class="muted-cell">${escapeHtml(row.message_id)}</span></td>
+            <td>${escapeHtml(row.source)} -> ${escapeHtml(row.destination)}</td>
+            <td>${escapeHtml(row.layer)}</td>
+            <td>${escapeHtml(row.priority)}</td>
+            <td>${escapeHtml(metricSummary(row.payload?.metrics ?? row.payload))}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function renderScenarioPackages() {
+  const node = document.querySelector("#scenarioPackageTable");
+  const summary = document.querySelector("#scenarioPackageStatus");
+  if (!node) return;
+  const payload = state.scenarioPackages ?? {};
+  const rows = payload.scenarios ?? [];
+  if (summary) {
+    summary.textContent = `${rows.length} scenario(s) / index ${payload.index_available ? "available" : "not generated"}`;
+  }
+  if (!rows.length) {
+    node.innerHTML = '<p class="protocol-text">No DAH training scenarios found</p>';
+    return;
+  }
+  node.innerHTML = `
+    <table>
+      <thead><tr><th>Scenario</th><th>Fault Profile</th><th>Goal</th><th>Expected Logs</th><th>Package Command</th></tr></thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td><strong>${escapeHtml(row.scenario_name)}</strong><br><span class="muted-cell">${escapeHtml(row.scenario_file)}</span></td>
+            <td>${escapeHtml(row.fault_profile)}</td>
+            <td>${escapeHtml(row.training_goal)}</td>
+            <td>${escapeHtml((row.expected_logs ?? []).join(", "))}</td>
+            <td><code>${escapeHtml(row.package_command)}</code></td>
+          </tr>`).join("")}
+      </tbody>
+    </table>
+    <p class="protocol-text scenario-package-command">Batch: <code>${escapeHtml(payload.batch_command ?? "")}</code></p>
+    <p class="protocol-text scenario-package-command">Briefing: <code>${escapeHtml(payload.briefing_command ?? "")}</code></p>`;
+}
 function renderFaultControls() {
   const select = document.querySelector("#faultTypeSelect");
   if (!select) return;
@@ -200,19 +373,31 @@ function renderFaultControls() {
 }
 
 async function refreshDahDashboard() {
-  const [dashboard, chain, alerts, protocolMonitor] = await Promise.all([
+  const [dashboard, chain, alerts, protocolMonitor, serviceStatus, scenarioPackages] = await Promise.all([
     api("/api/dashboard"),
     api("/api/chain"),
     api("/api/alerts?limit=20"),
     api("/api/protocol-monitor?limit=20"),
+    api("/api/service-status"),
+    api("/api/scenario-packages"),
   ]);
   state.dashboard = dashboard.payload;
   state.chain = chain.payload;
   state.alerts = alerts.payload;
   state.protocolMonitor = protocolMonitor.payload;
+  state.serviceStatus = serviceStatus.payload;
+  state.scenarioPackages = scenarioPackages.payload;
+  document.title = state.dashboard?.title ?? document.title;
   renderGcsSummary();
   renderChain();
   renderAlerts();
+  renderDefenseDecisions();
+  renderFaultEvents();
+  renderRecommendedResponses();
+  renderDockerServiceStatus();
+  renderCommandLog();
+  renderTacticalMessageLog();
+  renderScenarioPackages();
   renderFaultControls();
 }
 

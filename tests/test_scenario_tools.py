@@ -38,5 +38,42 @@ class ScenarioToolsTests(unittest.TestCase):
 
         self.assertTrue(any("UGV mission requires" in issue.message for issue in issues))
 
+
+    def test_dah_training_scenarios_are_valid_and_documented(self) -> None:
+        scenario_dir = ROOT / "scenarios" / "dah_training"
+        scenario_paths = [
+            scenario_dir / "mavlink_telemetry_monitoring.json",
+            scenario_dir / "mission_upload_guard.json",
+            scenario_dir / "tactical_chain_degradation.json",
+        ]
+        docs = (ROOT / "docs" / "scenarios.md").read_text(encoding="utf-8")
+
+        for path in scenario_paths:
+            with self.subTest(path=path.name):
+                report = analyze_scenario(path)
+                markdown = render_markdown_report(report)
+
+                self.assertTrue(report["valid"], report["issues"])
+                self.assertGreater(report["summary"]["asset_count"], 0)
+                self.assertGreater(report["summary"]["mission_count"], 0)
+                self.assertIn("Scenario Report", markdown)
+                self.assertIn(path.name, docs)
+
+    def test_defensive_vulnerability_notes_cover_allowlisted_faults(self) -> None:
+        notes = (ROOT / "docs" / "vulnerabilities.md").read_text(encoding="utf-8")
+
+        for fault_type in [
+            "mavlink_plaintext_warning",
+            "mission_count_reset_attempt",
+            "c2_link_delay",
+            "c2_link_packet_loss",
+            "tmmr_queue_overflow",
+            "ticn_route_metric_change",
+            "upper_c2_command_mismatch",
+        ]:
+            with self.subTest(fault_type=fault_type):
+                self.assertIn(fault_type, notes)
+        self.assertIn("emulator roles only", notes.lower())
+
 if __name__ == "__main__":
     unittest.main()

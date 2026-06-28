@@ -1,0 +1,87 @@
+{
+  "name": "dah_mission_upload_guard",
+  "duration_s": 320,
+  "step_s": 2,
+  "conflict_distance_m": 75,
+  "origin_lat_e7": 376000000,
+  "origin_lon_e7": 1271000000,
+  "scenario_intent": {
+    "training_goal": "Exercise GCS mission upload approval, mission sequence review, and log evidence for a simulated mission count reset attempt.",
+    "fault_profile": "mission_count_reset_attempt",
+    "expected_logs": ["mission_upload.request", "mission_upload.approved", "fault.injected", "alert.created", "edge.work.ack"],
+    "safety_boundary": "The reset attempt is represented only as a local GCS guard state and alert. No vehicle mission is overwritten."
+  },
+  "assets": [
+    {
+      "id": "mission-uav-01",
+      "callsign": "DAH-UAV-MSN-01",
+      "start": [-420, -180, 95],
+      "cruise_speed_mps": 16,
+      "min_altitude_m": 50,
+      "max_altitude_m": 350,
+      "battery_capacity_wh": 900,
+      "service_branch": "ROKA",
+      "platform_class": "small_uas",
+      "role": "mission upload approval training",
+      "datalink_profiles": ["mavlink_udp", "lte_tactical"],
+      "sensor_payloads": ["eo", "gps", "video_downlink"],
+      "endurance_s": 2400,
+      "system_id": 81,
+      "component_id": 1
+    }
+  ],
+  "c2_nodes": [
+    {
+      "id": "mission-gcs-east",
+      "kind": "ground_control_station",
+      "location": [-360, -120, 25],
+      "coverage_radius_m": 1500,
+      "supported_links": ["mavlink_udp", "lte_tactical"],
+      "latency_ms": 45,
+      "authority": "DAH Mission Approval Cell"
+    }
+  ],
+  "zones": [
+    {
+      "id": "mission-training-box",
+      "kind": "operating_area",
+      "x_min": -900,
+      "x_max": 900,
+      "y_min": -700,
+      "y_max": 700,
+      "min_altitude_m": 30,
+      "max_altitude_m": 600,
+      "label": "DAH mission upload approval operating box",
+      "controlling_authority": "DAH Mission Approval Cell"
+    },
+    {
+      "id": "mission-civil-buffer",
+      "kind": "no_fly_zone",
+      "x_min": 620,
+      "x_max": 860,
+      "y_min": 220,
+      "y_max": 460,
+      "min_altitude_m": 0,
+      "max_altitude_m": 1000,
+      "label": "Civil coordination buffer kept outside approved mission",
+      "controlling_authority": "Civil-Military Coordination"
+    }
+  ],
+  "missions": [
+    {
+      "id": "mission-upload-local-recon",
+      "asset_id": "mission-uav-01",
+      "requested_start_s": 20,
+      "requested_end_s": 240,
+      "nominal_speed_mps": 16,
+      "purpose": "operator-approved local reconnaissance upload",
+      "mission_type": "MISSION_UPLOAD_GUARD",
+      "priority": 2,
+      "control_mode": "assisted",
+      "required_payloads": ["eo", "gps"],
+      "required_link": "mavlink_udp",
+      "corridor_width_m": 45,
+      "route": [[-420, -180, 95], [-180, -120, 105], [140, -180, 115], [360, -40, 120]]
+    }
+  ]
+}

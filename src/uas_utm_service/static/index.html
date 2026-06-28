@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DAH UAS/UGV GCS Protocol Monitor</title>
+    <title>DAH UAS/UGV Tactical Chain Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>DAH UAS/UGV GCS Protocol Monitor</h1>
+        <h1>DAH UAS/UGV Tactical Chain Dashboard</h1>
         <p id="scenarioName">Loading scenario</p>
       </div>
       <nav class="status-strip" aria-label="service status">
@@ -26,7 +26,7 @@
       <div class="section-heading-row protocol-control-heading">
         <div>
           <h2>Protocol Console</h2>
-          <p class="protocol-text">Run UAS/UTM protocol steps and watch the live log below.</p>
+          <p class="protocol-text">Run local UAS/UTM protocol steps. All commands and faults stay dry-run or simulation-only.</p>
         </div>
         <ul id="protocolRunList" class="decision-list protocol-run-list"></ul>
       </div>
@@ -67,8 +67,23 @@
 
       <aside class="side-panel">
         <section>
-          <h2>Detection / Response</h2>
+          <h2>Alerts</h2>
           <ul id="alertList" class="decision-list alert-list"></ul>
+        </section>
+
+        <section>
+          <h2>Defense Decisions</h2>
+          <ul id="defenseDecisionList" class="decision-list queue-list"></ul>
+        </section>
+
+        <section>
+          <h2>Fault Injection Events</h2>
+          <ul id="faultEventList" class="decision-list queue-list"></ul>
+        </section>
+
+        <section>
+          <h2>Recommended Responses</h2>
+          <ul id="recommendedResponseList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
@@ -191,6 +206,31 @@
       <div id="protocolLogTable" class="asset-table protocol-log-table"></div>
       <h2 class="runtime-log-heading">Service Runtime Log</h2>
       <div id="runtimeLogTable" class="asset-table runtime-log-table"></div>
+    </section>
+
+    <section class="bottom-band bottom-grid">
+      <section>
+        <h2>Docker Service Status</h2>
+        <div id="dockerServiceStatusTable" class="asset-table service-status-table"></div>
+      </section>
+      <section>
+        <h2>Command Log</h2>
+        <div id="commandLogTable" class="asset-table"></div>
+      </section>
+      <section>
+        <h2>Tactical Message Log</h2>
+        <div id="tacticalMessageLogTable" class="asset-table"></div>
+      </section>
+      <section class="scenario-package-panel">
+        <div class="section-heading-row">
+          <div>
+            <h2>Scenario Packages</h2>
+            <p id="scenarioPackageStatus" class="protocol-text">Loading scenario package index</p>
+          </div>
+          <a class="protocol-pill status-neutral" href="/api/scenario-packages" target="_blank" rel="noreferrer">API</a>
+        </div>
+        <div id="scenarioPackageTable" class="asset-table scenario-package-table"></div>
+      </section>
     </section>
 
     <section class="bottom-band">

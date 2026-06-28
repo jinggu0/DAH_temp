@@ -1,16 +1,96 @@
 services:
-  uas-utm-service:
+  dah-gateway:
     build: .
+    container_name: dah-gateway
+    command:
+      - python
+      - -m
+      - dah_runtime.reverse_proxy
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9000"
+      - --target
+      - http://dah-dashboard:8080
+    ports:
+      - "9000:9000"
+    depends_on:
+      - dah-dashboard
+    networks:
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-dashboard:
+    build: .
+    container_name: dah-dashboard
+    command:
+      - python
+      - -m
+      - dah_services.dashboard_service
+    expose:
+      - "8080"
+    depends_on:
+      - dah-gcs
+    networks:
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-gcs:
+    build: .
+    container_name: dah-gcs
+    command:
+      - python
+      - -m
+      - dah_services.gcs_service
     ports:
       - "8080:8080"
     volumes:
       - ./output:/app/output
       - ./logs:/app/logs
+    networks:
+      dah-ops-net:
+        aliases:
+          - uas-utm-service
+      dah-asset-net: {}
+      dah-tactical-net: {}
     environment:
       PYTHONUNBUFFERED: "1"
 
-  uas-utm-gateway:
+  dah-uav-sim:
     build: .
+    container_name: dah-uav-sim
+    command:
+      - python
+      - -m
+      - dah_services.uav_sim_service
+    depends_on:
+      - dah-gcs
+    networks:
+      - dah-asset-net
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-ugv-sim:
+    build: .
+    container_name: dah-ugv-sim
+    command:
+      - python
+      - -m
+      - dah_services.ugv_sim_service
+    depends_on:
+      - dah-gcs
+    networks:
+      - dah-asset-net
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-mavlink-gateway:
+    build: .
+    container_name: dah-mavlink-gateway
     command:
       - uas-utm-gateway
       - --listen-host
@@ -20,35 +100,20 @@ services:
       - --scenario
       - scenarios/korea_defense_uas_utm_ops.json
       - --ingest-url
-      - http://uas-utm-service:8080/api/telemetry/ingest
+      - http://dah-gcs:8080/api/telemetry/ingest
     ports:
       - "14550:14550/udp"
     depends_on:
-      - uas-utm-service
+      - dah-gcs
+    networks:
+      - dah-asset-net
+      - dah-ops-net
     environment:
       PYTHONUNBUFFERED: "1"
-  uas-utm-edge-dronebot:
-    profiles: ["sample-edge"]
+
+  dah-bidir-mavlink-gateway:
     build: .
-    command:
-      - uas-utm-edge
-      - --service-url
-      - http://uas-utm-service:8080
-      - --edge-id
-      - edge-dronebot-01
-      - --device-type
-      - uav_edge
-      - --asset
-      - small-dronebot-01
-      - --authority
-      - ROKA UTM Cell
-      - --emit-sample-telemetry
-    depends_on:
-      - uas-utm-service
-    environment:
-      PYTHONUNBUFFERED: "1"
-  uas-utm-bidir-gateway:
-    build: .
+    container_name: dah-bidir-mavlink-gateway
     command:
       - uas-utm-bidir-gateway
       - --listen-host
@@ -58,10 +123,150 @@ services:
       - --scenario
       - scenarios/korea_defense_uas_utm_ops.json
       - --service-url
-      - http://uas-utm-service:8080
+      - http://dah-gcs:8080
     ports:
       - "14551:14551/udp"
     depends_on:
-      - uas-utm-service
+      - dah-gcs
+    networks:
+      - dah-asset-net
+      - dah-ops-net
     environment:
       PYTHONUNBUFFERED: "1"
+
+  dah-tactical-router:
+    build: .
+    container_name: dah-tactical-router
+    command:
+      - python
+      - -m
+      - dah_services.tactical_router_service
+    expose:
+      - "8080"
+    networks:
+      - dah-ops-net
+      - dah-tactical-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-tmmr-emulator:
+    build: .
+    container_name: dah-tmmr-emulator
+    command:
+      - python
+      - -m
+      - dah_services.tmmr_emulator_service
+    expose:
+      - "8080"
+    networks:
+      - dah-tactical-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-ticn-emulator:
+    build: .
+    container_name: dah-ticn-emulator
+    command:
+      - python
+      - -m
+      - dah_services.ticn_emulator_service
+    expose:
+      - "8080"
+    networks:
+      - dah-tactical-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-upper-c2:
+    build: .
+    container_name: dah-upper-c2
+    command:
+      - python
+      - -m
+      - dah_services.upper_c2_service
+    expose:
+      - "8080"
+    networks:
+      - dah-tactical-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-telemetry-collector:
+    build: .
+    container_name: dah-telemetry-collector
+    command:
+      - python
+      - -m
+      - dah_services.telemetry_collector_service
+    volumes:
+      - ./logs:/app/logs
+    expose:
+      - "8080"
+    networks:
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-defense-agent:
+    build: .
+    container_name: dah-defense-agent
+    command:
+      - python
+      - -m
+      - dah_services.defense_agent_service
+    expose:
+      - "8080"
+    networks:
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-fault-injector:
+    profiles: ["cyber-lab"]
+    build: .
+    container_name: dah-fault-injector
+    command:
+      - python
+      - -m
+      - dah_services.fault_injector_service
+    expose:
+      - "8080"
+    networks:
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+  dah-sample-edge-dronebot:
+    profiles: ["sample-edge"]
+    build: .
+    container_name: dah-sample-edge-dronebot
+    command:
+      - uas-utm-edge
+      - --service-url
+      - http://dah-gcs:8080
+      - --edge-id
+      - edge-dronebot-01
+      - --device-type
+      - uav_edge
+      - --asset
+      - small-dronebot-01
+      - --authority
+      - ROKA UTM Cell
+      - --software-version
+      - edge-dev
+      - --emit-sample-telemetry
+    depends_on:
+      - dah-gcs
+    networks:
+      - dah-asset-net
+      - dah-ops-net
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+networks:
+  dah-asset-net:
+    name: dah-asset-net
+  dah-ops-net:
+    name: dah-ops-net
+  dah-tactical-net:
+    name: dah-tactical-net

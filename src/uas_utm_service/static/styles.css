@@ -440,7 +440,7 @@ th {
 
 .gcs-summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
   gap: 10px;
   margin: 16px 16px 0;
 }
@@ -571,5 +571,48 @@ th {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(260px, 0.9fr) minmax(300px, 1fr);
+  gap: 12px;
+}
+
+.bottom-grid section {
+  min-width: 0;
+}
+
+.service-status-table td:nth-child(4),
+.service-status-table td:nth-child(5),
+.service-status-table td:nth-child(6),
+#commandLogTable td:nth-child(1),
+#tacticalMessageLogTable td:nth-child(5) {
+  white-space: normal;
+  min-width: 180px;
+  line-height: 1.35;
+}
+
+@media (max-width: 1180px) {
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scenario-package-panel {
+  grid-column: 1 / -1;
+}
+
+.scenario-package-table td:nth-child(3),
+.scenario-package-table td:nth-child(4),
+.scenario-package-table td:nth-child(5) {
+  white-space: normal;
+  min-width: 220px;
+  line-height: 1.35;
+}
+
+.scenario-package-command {
+  margin-top: 10px;
   overflow-wrap: anywhere;
 }

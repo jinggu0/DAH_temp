@@ -356,13 +356,46 @@ class UasUtmServiceTests(unittest.TestCase):
         state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
 
         payload = state.dashboard_payload()
+        labels = [card["label"] for card in payload["cards"]]
 
         self.assertEqual(payload["schema_version"], "dah-gcs-dashboard.v1")
-        self.assertEqual(len(payload["cards"]), 6)
-        self.assertIn("TMMR Emulator", [card["label"] for card in payload["cards"]])
-        self.assertIn("TICN-like Network", [card["label"] for card in payload["cards"]])
+        self.assertEqual(payload["title"], "DAH UAS/UGV Tactical Chain Dashboard")
+        self.assertEqual(len(payload["cards"]), 10)
+        self.assertIn("UAV Simulator", labels)
+        self.assertIn("UGV Simulator", labels)
+        self.assertIn("GCS / Ground Gateway", labels)
+        self.assertIn("TMMR Emulator", labels)
+        self.assertIn("TICN-like Network", labels)
+        self.assertIn("Telemetry Collector", labels)
         self.assertIn("TMMR role", payload["scope"]["emulated_only"])
+        self.assertEqual(payload["service_statuses"][0]["container_name"], "dah-uav-sim-1")
 
+    def test_service_status_payload_exposes_docker_dashboard_roles(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        payload = state.service_status_payload()
+        labels = [item["label"] for item in payload["service_statuses"]]
+
+        self.assertEqual(payload["schema_version"], "dah-service-status.v1")
+        self.assertEqual(payload["count"], 10)
+        self.assertIn("dah-gcs", payload["docker_service_names"])
+        self.assertIn("dah-defense-agent", payload["docker_service_names"])
+        self.assertIn("Upper C2/BMS", labels)
+        self.assertTrue(any(item["emulated"] for item in payload["service_statuses"] if item["label"] == "TMMR Emulator"))
+
+    def test_scenario_packages_payload_exposes_training_pack(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        payload = state.scenario_packages_payload()
+        names = [item["scenario_name"] for item in payload["scenarios"]]
+
+        self.assertEqual(payload["schema_version"], "dah-scenario-packages.v1")
+        self.assertEqual(payload["count"], 3)
+        self.assertIn("dah_mavlink_telemetry_monitoring", names)
+        self.assertIn("PYTHONPATH=src python -m uas_utm.scenario_batch", payload["batch_command"])
+        self.assertIn("PYTHONPATH=src python -m uas_utm.scenario_briefing", payload["briefing_command"])
+        self.assertIn("docs/scenarios.md", payload["docs"])
+        self.assertIn("no real tactical network", payload["safety_boundary"])
     def test_allowlisted_fault_injection_creates_alert_and_degrades_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json", log_dir=Path(tmpdir))

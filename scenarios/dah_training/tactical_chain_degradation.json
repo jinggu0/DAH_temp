@@ -1,0 +1,119 @@
+{
+  "name": "dah_tactical_chain_degradation",
+  "duration_s": 360,
+  "step_s": 2,
+  "conflict_distance_m": 85,
+  "origin_lat_e7": 376000000,
+  "origin_lon_e7": 1271000000,
+  "scenario_intent": {
+    "training_goal": "Exercise blue-team triage when local emulator metrics show C2 delay, TMMR queue pressure, or TICN-like route metric changes.",
+    "fault_profile": "tmmr_queue_overflow,ticn_route_metric_change,c2_link_delay",
+    "expected_logs": ["fault.injected", "alert.created", "tactical_message.snapshot", "service_status.snapshot"],
+    "safety_boundary": "Tactical Router, TMMR, TICN-like Network, and Upper C2/BMS are local role emulators only."
+  },
+  "assets": [
+    {
+      "id": "chain-uav-01",
+      "callsign": "DAH-UAV-CHN-01",
+      "start": [-620, 120, 160],
+      "cruise_speed_mps": 24,
+      "min_altitude_m": 80,
+      "max_altitude_m": 1200,
+      "battery_capacity_wh": 5200,
+      "service_branch": "ROKA",
+      "platform_class": "tactical_uas",
+      "role": "chain degradation aerial sensor",
+      "datalink_profiles": ["mavlink_udp", "los_c_band"],
+      "sensor_payloads": ["eo", "ir", "gps"],
+      "endurance_s": 5400,
+      "system_id": 91,
+      "component_id": 1
+    },
+    {
+      "id": "chain-ugv-01",
+      "callsign": "DAH-UGV-CHN-01",
+      "start": [-840, -720, 0],
+      "cruise_speed_mps": 6,
+      "min_altitude_m": 0,
+      "max_altitude_m": 20,
+      "battery_capacity_wh": 4200,
+      "service_branch": "ROKA",
+      "platform_class": "ugv_ground_rover",
+      "role": "chain degradation ground relay",
+      "datalink_profiles": ["mavlink_udp", "mesh_ground"],
+      "sensor_payloads": ["eo", "lidar", "gps"],
+      "endurance_s": 7200,
+      "system_id": 92,
+      "component_id": 1
+    }
+  ],
+  "c2_nodes": [
+    {
+      "id": "chain-ground-gcs",
+      "kind": "ground_control_station",
+      "location": [-620, -240, 25],
+      "coverage_radius_m": 2100,
+      "supported_links": ["mavlink_udp", "los_c_band", "mesh_ground"],
+      "latency_ms": 60,
+      "authority": "DAH Tactical Chain Cell"
+    }
+  ],
+  "zones": [
+    {
+      "id": "chain-training-box",
+      "kind": "operating_area",
+      "x_min": -1300,
+      "x_max": 1200,
+      "y_min": -1100,
+      "y_max": 900,
+      "min_altitude_m": 0,
+      "max_altitude_m": 1500,
+      "label": "DAH tactical chain degradation operating box",
+      "controlling_authority": "DAH Tactical Chain Cell"
+    },
+    {
+      "id": "chain-ugv-ground-corridor",
+      "kind": "operating_area",
+      "x_min": -900,
+      "x_max": -160,
+      "y_min": -780,
+      "y_max": -360,
+      "min_altitude_m": -2,
+      "max_altitude_m": 10,
+      "label": "DAH UGV ground route corridor for chain scenario",
+      "controlling_authority": "DAH Tactical Chain Cell"
+    }
+  ],
+  "missions": [
+    {
+      "id": "chain-uav-relay-watch",
+      "asset_id": "chain-uav-01",
+      "requested_start_s": 10,
+      "requested_end_s": 280,
+      "nominal_speed_mps": 24,
+      "purpose": "aerial relay and sensor watch during degraded chain exercise",
+      "mission_type": "TACTICAL_CHAIN_MONITOR",
+      "priority": 2,
+      "control_mode": "auto",
+      "required_payloads": ["eo", "gps"],
+      "required_link": "los_c_band",
+      "corridor_width_m": 70,
+      "route": [[-620, 120, 160], [-280, 180, 180], [120, 20, 190], [420, 180, 200]]
+    },
+    {
+      "id": "chain-ugv-route-watch",
+      "asset_id": "chain-ugv-01",
+      "requested_start_s": 40,
+      "requested_end_s": 320,
+      "nominal_speed_mps": 6,
+      "purpose": "ground route telemetry during degraded chain exercise",
+      "mission_type": "UGV_CHAIN_MONITOR",
+      "priority": 2,
+      "control_mode": "assisted",
+      "required_payloads": ["eo", "lidar"],
+      "required_link": "mesh_ground",
+      "corridor_width_m": 35,
+      "route": [[-840, -720, 0], [-640, -640, 0], [-420, -520, 0], [-180, -420, 0]]
+    }
+  ]
+}

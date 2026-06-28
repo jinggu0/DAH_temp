@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -39,6 +39,7 @@ def package_scenario(*, scenario_path: Path, output_dir: Path, limit: int = 500)
         report_md=report_md,
         baseline_paths=baseline_paths,
         report=report,
+        scenario_intent=_scenario_intent(scenario_path),
     )
     manifest_path = package_root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -71,6 +72,7 @@ def _manifest(
     report_md: Path,
     baseline_paths: dict[str, str],
     report: dict[str, Any],
+    scenario_intent: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "package_name": package_root.name,
@@ -83,7 +85,17 @@ def _manifest(
         "baseline": {key: _relative(Path(value), package_root) for key, value in baseline_paths.items()},
         "valid": bool(report["valid"]),
         "issue_counts": report["issue_counts"],
+        "scenario_intent": scenario_intent,
     }
+
+
+def _scenario_intent(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    intent = raw.get("scenario_intent", {})
+    return intent if isinstance(intent, dict) else {}
 
 
 def _relative(path: Path, root: Path) -> str:

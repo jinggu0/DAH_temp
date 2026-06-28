@@ -57,6 +57,10 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(envelope(message_type="utm.operation_profile", payload=state.operation_profile()))
             elif path == "/api/edge/devices":
                 self._send_json(envelope(message_type="utm.edge.devices", payload=state.edge_devices_payload()))
+            elif path == "/api/service-status":
+                self._send_json(envelope(message_type="dah.service_status", payload=state.service_status_payload()))
+            elif path == "/api/scenario-packages":
+                self._send_json(envelope(message_type="dah.scenario_packages", payload=state.scenario_packages_payload()))
             elif path == "/api/tactical-emulator":
                 self._send_json(envelope(message_type="dah.tactical_emulator", payload=state.tactical_emulator_payload()))
             elif path == "/api/dashboard":
