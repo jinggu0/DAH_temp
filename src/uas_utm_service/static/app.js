@@ -178,7 +178,7 @@ function renderChain() {
         <small>${escapeHtml(item.boundary)}</small>
         <small class="chain-metrics">${escapeHtml(metricSummary(item.metrics))}</small>
       </div>
-      ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">-></div>' : ''}`)
+      ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">→</div>' : ''}`)
     .join("");
 }
 
@@ -272,15 +272,25 @@ function renderDockerServiceStatus() {
     <table>
       <thead><tr><th>Service</th><th>Container</th><th>Status</th><th>Boundary</th><th>Metrics</th><th>Links</th></tr></thead>
       <tbody>
-        ${rows.map((row) => `
+        ${rows.map((row) => {
+          const emBadge = row.emulated
+            ? `<span class="sim-badge sim-badge-emulated">EMULATED</span>`
+            : `<span class="sim-badge sim-badge-real">REAL/MOCK</span>`;
+          const healthUrl = row.health_url ?? "/health";
+          const statusUrl = row.status_url ?? "/status";
+          return `
           <tr>
             <td><strong>${escapeHtml(row.label)}</strong><br><span class="muted-cell">${escapeHtml(row.role)}</span></td>
-            <td>${escapeHtml(row.container_name ?? row.service_id)}</td>
+            <td><code>${escapeHtml(row.container_name ?? row.service_id)}</code><br>${emBadge}</td>
             <td><span class="protocol-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span></td>
-            <td>${escapeHtml(row.boundary)}</td>
+            <td class="boundary-cell">${escapeHtml(row.boundary)}</td>
             <td>${escapeHtml(metricSummary(row.metrics))}</td>
-            <td><span class="muted-cell">${escapeHtml(row.health_url ?? "/health")} / ${escapeHtml(row.status_url ?? "/status")}</span></td>
-          </tr>`).join("")}
+            <td class="link-cell">
+              <a href="${escapeHtml(healthUrl)}" target="_blank" rel="noreferrer">health</a>
+              <a href="${escapeHtml(statusUrl)}" target="_blank" rel="noreferrer">status</a>
+            </td>
+          </tr>`;
+        }).join("")}
       </tbody>
     </table>`;
 }
@@ -686,9 +696,9 @@ function flowClass(value) {
 
 function statusClass(value) {
   const text = String(value ?? "").toLowerCase();
-  if (text.includes("reject") || text.includes("error")) return "status-rejected";
-  if (text.includes("approved") || text.includes("accepted") || text.includes("received") || text.includes("online")) return "status-approved";
-  if (text.includes("pending")) return "status-pending";
+  if (text === "critical" || text.includes("reject") || text.includes("error")) return "status-critical";
+  if (text === "degraded" || text.includes("warn") || text.includes("pending")) return "status-degraded";
+  if (text === "normal" || text.includes("approved") || text.includes("accepted") || text.includes("received") || text.includes("online")) return "status-normal";
   return "status-neutral";
 }
 

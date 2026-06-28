@@ -368,7 +368,7 @@ class UasUtmServiceTests(unittest.TestCase):
         self.assertIn("TICN-like Network", labels)
         self.assertIn("Telemetry Collector", labels)
         self.assertIn("TMMR role", payload["scope"]["emulated_only"])
-        self.assertEqual(payload["service_statuses"][0]["container_name"], "dah-uav-sim-1")
+        self.assertEqual(payload["service_statuses"][0]["container_name"], "dah-uav-sim")
 
     def test_service_status_payload_exposes_docker_dashboard_roles(self) -> None:
         state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")

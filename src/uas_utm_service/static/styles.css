@@ -391,19 +391,22 @@ th {
   color: var(--muted);
 }
 
-.status-approved {
+.status-approved,
+.status-normal {
   border-color: var(--accent-2);
   color: var(--accent-2);
   background: #edf7ef;
 }
 
-.status-pending {
+.status-pending,
+.status-degraded {
   border-color: #b06100;
   color: #9a5700;
   background: #fff4df;
 }
 
-.status-rejected {
+.status-rejected,
+.status-critical {
   border-color: var(--reject);
   color: var(--reject);
   background: #fff0ee;
@@ -615,4 +618,51 @@ th {
 .scenario-package-command {
   margin-top: 10px;
   overflow-wrap: anywhere;
+}
+
+/* ── Status-specific card and node border accents ── */
+.gcs-card.status-normal  { border-left: 4px solid var(--accent-2); }
+.gcs-card.status-degraded { border-left: 4px solid #b06100; }
+.gcs-card.status-critical { border-left: 4px solid var(--reject); }
+
+.chain-node.status-normal  { border-left: 4px solid var(--accent-2); }
+.chain-node.status-degraded { border-left: 4px solid #b06100; background: #fffbf4; }
+.chain-node.status-critical { border-left: 4px solid var(--reject); background: #fff8f7; }
+
+/* ── Service status table badge variants ── */
+.sim-badge-emulated {
+  border-color: #6b50a8;
+  color: #5a3f94;
+  background: #f0ecfb;
+}
+
+.sim-badge-real {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+  background: #edf7ef;
+}
+
+/* ── Service status table column formatting ── */
+.boundary-cell {
+  white-space: normal;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 160px;
+  line-height: 1.35;
+}
+
+.link-cell {
+  white-space: nowrap;
+}
+
+.link-cell a {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.link-cell a:hover {
+  text-decoration: underline;
 }

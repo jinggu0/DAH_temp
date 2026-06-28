@@ -902,7 +902,7 @@ def _service_status(
     return {
         "service_id": service_id,
         "docker_service_name": service_id,
-        "container_name": f"{service_id}-1",
+        "container_name": service_id,
         "label": label,
         "role": role,
         "status": status,
