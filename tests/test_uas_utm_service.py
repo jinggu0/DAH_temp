@@ -70,6 +70,39 @@ class UasUtmServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["mode"], "hybrid")
         self.assertEqual(snapshot["external_frames"][0]["asset_id"], "external-uas-01")
 
+    def test_telemetry_ingest_keeps_multiple_edge_frames_for_same_asset(self) -> None:
+        state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
+
+        first = state.ingest_telemetry(
+            {
+                "payload": {
+                    "asset_id": "rq101-corps-recon-01",
+                    "time_s": 42,
+                    "position": [100, 200, 90],
+                    "source_id": "edge-recon-a",
+                    "source": "dashboard-edge-sim",
+                }
+            }
+        )
+        second = state.ingest_telemetry(
+            {
+                "payload": {
+                    "asset_id": "rq101-corps-recon-01",
+                    "time_s": 43,
+                    "position": [120, 220, 92],
+                    "source_id": "edge-recon-b",
+                    "source": "dashboard-edge-sim",
+                }
+            }
+        )
+        snapshot = state.live_snapshot(43)
+        frames = [frame for frame in snapshot["external_frames"] if frame["asset_id"] == "rq101-corps-recon-01"]
+
+        self.assertEqual(first["external_asset_count"], 1)
+        self.assertEqual(second["external_asset_count"], 1)
+        self.assertEqual(second["external_frame_count"], 2)
+        self.assertEqual(len(frames), 2)
+        self.assertEqual({frame["source_id"] for frame in frames}, {"edge-recon-a", "edge-recon-b"})
     def test_track_fusion_merges_simulation_and_external_sources(self) -> None:
         state = ServiceState(ROOT / "scenarios" / "korea_defense_uas_utm_ops.json")
 

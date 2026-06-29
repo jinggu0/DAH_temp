@@ -28,6 +28,10 @@ const state = {
   live: false,
   eventSource: null,
   snapshot: null,
+  edgeMotionStartedAt: null,
+  edgeMotionTimer: null,
+  edgeMotionBusy: false,
+  intrusionAlerts: [],       // 탐지된 침입 경고 목록
 };
 
 const canvas = document.querySelector("#airspaceCanvas");
@@ -124,6 +128,7 @@ async function bootstrap() {
   renderSummary();
   renderOperationProfile();
   renderEdgeDevices();
+  renderEdgeLiveStatusTable();
   renderCommandPanel();
   renderMissionUploadPanel();
   renderAuditTimeline();
@@ -139,6 +144,8 @@ async function bootstrap() {
   renderScenarioPackages();
   await loadSnapshot(0);
   startProtocolLogLive();
+  state.edgeMotionStartedAt = Date.now();
+  startEdgeMotionLive();
 }
 
 
@@ -178,7 +185,7 @@ function renderChain() {
         <small>${escapeHtml(item.boundary)}</small>
         <small class="chain-metrics">${escapeHtml(metricSummary(item.metrics))}</small>
       </div>
-      ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">→</div>' : ''}`)
+      ${index < chain.nodes.length - 1 ? '<div class="chain-arrow">-&gt;</div>' : ''}`)
     .join("");
 }
 
@@ -194,7 +201,7 @@ function renderAlerts() {
   const alerts = state.alerts?.alerts ?? state.dashboard?.alerts?.alerts ?? [];
   list.innerHTML = "";
   if (!alerts.length) {
-    appendListText(list, "No simulated alerts");
+    appendListText(list, "시뮬레이션 경보 없음");
     return;
   }
   for (const alert of alerts.slice().reverse()) {
@@ -212,7 +219,7 @@ function renderDefenseDecisions() {
   list.innerHTML = "";
   const alerts = state.alerts?.alerts ?? [];
   if (!alerts.length) {
-    appendListText(list, "Normal monitoring / no response action queued");
+    appendListText(list, "정상 감시 중 / 대응 조치 없음");
     return;
   }
   for (const alert of alerts.slice().reverse()) {
@@ -230,7 +237,7 @@ function renderFaultEvents() {
   const faults = state.chain?.emulator?.recent_faults ?? [];
   list.innerHTML = "";
   if (!faults.length) {
-    appendListText(list, "No fault injection events");
+    appendListText(list, "폴트 주입 이벤트 없음");
     return;
   }
   for (const fault of faults.slice().reverse()) {
@@ -248,7 +255,7 @@ function renderRecommendedResponses() {
   const alerts = state.alerts?.alerts ?? [];
   list.innerHTML = "";
   if (!alerts.length) {
-    appendListText(list, "Continue baseline monitoring");
+    appendListText(list, "기본 감시 지속 중");
     return;
   }
   for (const alert of alerts.slice().reverse()) {
@@ -265,12 +272,12 @@ function renderDockerServiceStatus() {
   if (!node) return;
   const rows = state.serviceStatus?.service_statuses ?? state.dashboard?.service_statuses ?? [];
   if (!rows.length) {
-    node.innerHTML = '<p class="protocol-text">No Docker service status snapshot</p>';
+    node.innerHTML = '<p class="protocol-text">Docker 서비스 상태 스냅샷 없음</p>';
     return;
   }
   node.innerHTML = `
     <table>
-      <thead><tr><th>Service</th><th>Container</th><th>Status</th><th>Boundary</th><th>Metrics</th><th>Links</th></tr></thead>
+      <thead><tr><th>서비스</th><th>컨테이너</th><th>상태</th><th>경계</th><th>지표</th><th>링크</th></tr></thead>
       <tbody>
         ${rows.map((row) => {
           const emBadge = row.emulated
@@ -465,9 +472,10 @@ async function loadSnapshot(index) {
 function applySnapshot(snapshot) {
   state.snapshot = snapshot;
   document.querySelector("#clockLabel").textContent = `T+${state.snapshot.time_s}s`;
-  document.querySelector("#modeLabel").textContent = state.live ? "Live" : "Replay";
+  document.querySelector("#modeLabel").textContent = state.live ? "라이브" : "재생";
   drawMap();
   renderAssetTable();
+  renderEdgeLiveStatusTable();
 }
 
 function applyTracks(tracks) {
@@ -505,7 +513,7 @@ function renderEdgeDevices() {
   const devices = visibleEdgeDevices();
   if (!devices.length) {
     const item = document.createElement("li");
-    item.textContent = "No edge devices registered";
+    item.textContent = "등록된 엣지 디바이스 없음";
     list.appendChild(item);
     return;
   }
@@ -522,10 +530,10 @@ function renderLogStorage() {
   if (!node) return;
   node.innerHTML = "";
   const entries = [
-    ["Events", state.logStatus?.event_count ?? 0],
-    ["Integrity", state.logIntegrity?.valid ? "valid" : "check"],
-    ["Profile", state.logStatus?.profile ?? "-"],
-    ["Hash", state.logStatus?.last_hash ? state.logStatus.last_hash.slice(0, 12) : "none"],
+    ["이벤트", state.logStatus?.event_count ?? 0],
+    ["무결성", state.logIntegrity?.valid ? "정상" : "확인 필요"],
+    ["프로파일", state.logStatus?.profile ?? "-"],
+    ["해시", state.logStatus?.last_hash ? state.logStatus.last_hash.slice(0, 12) : "없음"],
   ];
   for (const [label, value] of entries) {
     const item = document.createElement("div");
@@ -542,12 +550,12 @@ function renderProtocolMonitorSummary() {
   const monitor = state.protocolMonitor;
   node.innerHTML = "";
   const entries = [
-    ["Schema", monitor?.schema_version ?? "-"],
+    ["스키마", monitor?.schema_version ?? "-"],
     ["MAVLink", monitor?.mavlink_adapter?.mode ?? "-"],
-    ["Telemetry", monitor?.telemetry?.length ?? 0],
-    ["Commands", monitor?.commands?.length ?? 0],
-    ["Tactical", monitor?.tactical_messages?.length ?? 0],
-    ["Alerts", monitor?.alerts?.length ?? 0],
+    ["텔레메트리", monitor?.telemetry?.length ?? 0],
+    ["커맨드", monitor?.commands?.length ?? 0],
+    ["전술 메시지", monitor?.tactical_messages?.length ?? 0],
+    ["경보", monitor?.alerts?.length ?? 0],
   ];
   for (const [label, value] of entries) {
     const item = document.createElement("div");
@@ -555,7 +563,7 @@ function renderProtocolMonitorSummary() {
     node.appendChild(item);
   }
   const boundary = document.querySelector("#protocolMonitorBoundary");
-  if (boundary) boundary.textContent = monitor?.safety_boundary ?? "Protocol monitor not loaded";
+  if (boundary) boundary.textContent = monitor?.safety_boundary ?? "프로토콜 모니터 미로드";
 }
 function renderMavlinkState() {
   const node = document.querySelector("#mavlinkState");
@@ -579,7 +587,7 @@ function renderProtocolRuns() {
   list.innerHTML = "";
   const rows = state.protocolRuns.slice(-8).reverse();
   if (!rows.length) {
-    appendListText(list, "Click a protocol action to run it");
+    appendListText(list, "프로토콜 버튼을 클릭하여 실행하세요");
     return;
   }
   for (const run of rows) {
@@ -598,23 +606,23 @@ function renderProtocolLogs() {
   const rows = state.protocolLogs?.protocol_logs ?? [];
   const status = document.querySelector("#protocolLogStatus");
   if (status) {
-    const heartbeat = state.protocolLogs?.include_heartbeat ? "included" : "hidden";
-    const mode = state.protocolLogLive ? "live" : "paused";
-    status.textContent = `${state.protocolLogs?.count ?? 0} protocol events / heartbeat ${heartbeat} / ${mode}`;
+    const heartbeat = state.protocolLogs?.include_heartbeat ? "포함" : "숨김";
+    const mode = state.protocolLogLive ? "실시간" : "일시정지";
+    status.textContent = `${state.protocolLogs?.count ?? 0}건의 프로토콜 이벤트 / 심박 ${heartbeat} / ${mode}`;
   }
   const toggle = document.querySelector("#toggleHeartbeatButton");
-  if (toggle) toggle.textContent = state.showProtocolHeartbeat ? "Hide Heartbeat" : "Show Heartbeat";
+  if (toggle) toggle.textContent = state.showProtocolHeartbeat ? "심박 숨기기" : "심박 표시";
   const liveToggle = document.querySelector("#toggleProtocolLiveButton");
-  if (liveToggle) liveToggle.textContent = state.protocolLogLive ? "Pause Live" : "Resume Live";
+  if (liveToggle) liveToggle.textContent = state.protocolLogLive ? "실시간 일시정지" : "실시간 재개";
   if (!rows.length) {
-    node.innerHTML = '<p class="protocol-text">No protocol log events yet</p>';
+    node.innerHTML = '<p class="protocol-text">아직 프로토콜 로그 이벤트가 없습니다</p>';
     return;
   }
   node.innerHTML = `
     <table>
       <thead>
         <tr>
-          <th>Time</th><th>Flow</th><th>Protocol</th><th>Target</th><th>Status</th><th>Summary</th>
+          <th>시각</th><th>플로우</th><th>프로토콜</th><th>대상</th><th>상태</th><th>요약</th>
         </tr>
       </thead>
       <tbody>
@@ -704,16 +712,14 @@ function statusClass(value) {
 
 async function refreshProtocolLogsOnly() {
   const heartbeatParam = state.showProtocolHeartbeat ? "true" : "false";
-  const [protocolLogs, runtimeLogs, logStatus, logIntegrity] = await Promise.all([
+  const [protocolLogs, runtimeLogs, logStatus] = await Promise.all([
     api(`/api/protocol/logs?limit=120&include_heartbeat=${heartbeatParam}`),
     api("/api/runtime/logs?limit=120"),
     api("/api/logs/status"),
-    api("/api/logs/verify"),
   ]);
   state.protocolLogs = protocolLogs.payload;
   state.runtimeLogs = runtimeLogs.payload;
   state.logStatus = logStatus.payload;
-  state.logIntegrity = logIntegrity.payload;
   renderProtocolLogs();
   renderRuntimeLogs();
   renderLogStorage();
@@ -739,36 +745,37 @@ function actionDetail(result) {
   }
 }
 async function runProtocolAction(label, action) {
-  const entry = { label, status: "running", ok: null, time: new Date().toISOString(), detail: "" };
+  const entry = { label, status: "실행 중", ok: null, time: new Date().toISOString(), detail: "" };
   state.protocolRuns.push(entry);
   renderProtocolRuns();
   try {
     const result = await action();
-    entry.status = result?.skipped ? "skipped" : "ok";
+    entry.status = result?.skipped ? "건너뜀" : "완료";
     entry.ok = result?.skipped ? null : true;
     entry.detail = actionDetail(result);
-    try {
-      await refreshWorkQueues();
-    } catch (refreshError) {
-      entry.status = "ok / refresh stale";
-      entry.detail = `${entry.detail}\n\nRefresh warning: ${refreshError.message}`;
+    renderProtocolRuns();
+    // 상태 UI 즉시 반영 후 백그라운드에서 큐 새로고침
+    refreshWorkQueues().catch((refreshError) => {
+      entry.status = "완료 (새로고침 실패)";
+      entry.detail = `${entry.detail}\n\n새로고침 오류: ${refreshError.message}`;
+      renderProtocolRuns();
       refreshProtocolLogsOnly().catch(console.error);
-    }
+    });
   } catch (error) {
-    entry.status = "error";
+    entry.status = "오류";
     entry.ok = false;
     entry.detail = error.message;
+    renderProtocolRuns();
   }
-  renderProtocolRuns();
 }
 async function refreshWorkQueues() {
   const heartbeatParam = state.showProtocolHeartbeat ? "true" : "false";
-  const [commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, edgeDevices] = await Promise.all([
+  // /api/logs/verify 는 전체 해시 체인 검증으로 느림 — 별도 버튼으로만 호출
+  const [commands, missionUploads, audit, logStatus, protocolLogs, edgeDevices] = await Promise.all([
     api("/api/commands"),
     api("/api/mission-uploads"),
     api("/api/audit?limit=80"),
     api("/api/logs/status"),
-    api("/api/logs/verify"),
     api(`/api/protocol/logs?limit=80&include_heartbeat=${heartbeatParam}`),
     api("/api/edge/devices"),
   ]);
@@ -776,7 +783,6 @@ async function refreshWorkQueues() {
   state.missionUploads = missionUploads.payload;
   state.audit = audit.payload;
   state.logStatus = logStatus.payload;
-  state.logIntegrity = logIntegrity.payload;
   state.protocolLogs = protocolLogs.payload;
   state.edgeDevices = edgeDevices.payload;
   renderCommandPanel();
@@ -785,6 +791,7 @@ async function refreshWorkQueues() {
   renderLogStorage();
   renderProtocolLogs();
   renderEdgeDevices();
+  renderEdgeLiveStatusTable();
 }
 
 function renderCommandPanel() {
@@ -793,7 +800,7 @@ function renderCommandPanel() {
   const commands = state.commands?.commands ?? [];
   list.innerHTML = "";
   if (!commands.length) {
-    appendListText(list, "No command requests");
+    appendListText(list, "커맨드 요청 없음");
   } else {
     for (const command of commands.slice(-6).reverse()) {
       const item = document.createElement("li");
@@ -813,7 +820,7 @@ function renderMissionUploadPanel() {
   const uploads = state.missionUploads?.mission_uploads ?? [];
   list.innerHTML = "";
   if (!uploads.length) {
-    appendListText(list, "No mission uploads");
+    appendListText(list, "미션 업로드 없음");
   } else {
     for (const upload of uploads.slice(-6).reverse()) {
       const item = document.createElement("li");
@@ -833,7 +840,7 @@ function renderAuditTimeline() {
   const rows = state.audit?.audit ?? [];
   list.innerHTML = "";
   if (!rows.length) {
-    appendListText(list, "No audit events");
+    appendListText(list, "감사 이벤트 없음");
     return;
   }
   for (const event of rows.slice(-10).reverse()) {
@@ -871,11 +878,21 @@ function visibleMapMissions() {
 
 function visibleMapFrames() {
   const externalFrames = state.snapshot?.external_frames ?? [];
-  const edgeIds = new Set(registeredEdgeAssetIds());
-  if (!edgeIds.size) return [];
-  const externalByAsset = new Map(externalFrames.map((frame) => [frame.asset_id, frame]));
-  return [...edgeIds]
-    .map((assetId) => externalByAsset.get(assetId))
+  const frameByEdgeAsset = new Map(
+    externalFrames.map((frame) => [`${frame.source_id ?? frame.source ?? "external"}:${frame.asset_id}`, frame])
+  );
+  return registeredEdgeAssignments()
+    .map((assignment) => {
+      const frame = frameByEdgeAsset.get(`${assignment.edge_id}:${assignment.asset_id}`);
+      if (!frame) return null;
+      return {
+        ...frame,
+        edge_id: assignment.edge_id,
+        edge_device_type: assignment.device_type,
+        edge_status: assignment.status,
+        edge_authority: assignment.authority,
+      };
+    })
     .filter(Boolean)
     .filter((frame) => !isTemporaryMissionId(frame.mission_id));
 }
@@ -1046,12 +1063,25 @@ async function heartbeatDashboardUgv() {
   });
 }
 
-function registeredEdgeAssetIds() {
-  const ids = new Set();
+function registeredEdgeAssignments() {
+  const assignments = [];
   for (const device of visibleEdgeDevices()) {
-    for (const assetId of device.asset_ids ?? []) ids.add(assetId);
+    for (const assetId of device.asset_ids ?? []) {
+      assignments.push({
+        edge_id: device.edge_id,
+        asset_id: assetId,
+        device_type: device.device_type,
+        status: device.status,
+        authority: device.authority,
+        link_profiles: device.link_profiles ?? [],
+      });
+    }
   }
-  return [...ids];
+  return assignments;
+}
+
+function registeredEdgeAssetIds() {
+  return [...new Set(registeredEdgeAssignments().map((item) => item.asset_id))];
 }
 
 function missionForAsset(assetId) {
@@ -1091,35 +1121,73 @@ function routePositionAt(mission, elapsedS) {
   return route[route.length - 1];
 }
 
-function edgeTelemetryPayload(assetId) {
+function edgeOffsetFor(edgeId, assetId) {
+  const peers = registeredEdgeAssignments().filter((item) => item.asset_id === assetId).map((item) => item.edge_id).sort();
+  const index = Math.max(0, peers.indexOf(edgeId));
+  const count = Math.max(1, peers.length);
+  if (count === 1) return [0, 0, 0];
+  const angle = (Math.PI * 2 * index) / count;
+  const radius = 18 + Math.min(18, count * 3);
+  return [Math.cos(angle) * radius, Math.sin(angle) * radius, 0];
+}
+
+function offsetPositionForEdge(position, edgeId, assetId) {
+  const offset = edgeOffsetFor(edgeId, assetId);
+  return [
+    Number(position[0] ?? 0) + offset[0],
+    Number(position[1] ?? 0) + offset[1],
+    Number(position[2] ?? 0) + offset[2],
+  ];
+}
+
+function edgePhaseSeconds(edgeId) {
+  let hash = 0;
+  for (const ch of String(edgeId)) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return (hash % 11) * 0.7;
+}
+
+function edgeTelemetryPayload(assetId, edgeId, assignmentIndex = 0, device = {}) {
   const mission = missionForAsset(assetId);
-  const elapsedS = (Date.now() - state.edgeMotionStartedAt) / 1000;
-  const position = routePositionAt(mission, elapsedS);
-  const isUgv = assetId.includes("ground") || assetId.includes("ugv");
+  const elapsedS = ((Date.now() - state.edgeMotionStartedAt) / 1000) + edgePhaseSeconds(edgeId) + assignmentIndex * 0.35;
+  const basePosition = routePositionAt(mission, elapsedS);
+  let position = offsetPositionForEdge(basePosition, edgeId, assetId);
+  const isUgv = assetId.includes("ground") || assetId.includes("ugv") || String(device.device_type ?? "").includes("ugv");
+  const linkProfile = (device.link_profiles ?? [])[0] ?? (isUgv ? "mesh_ground" : "mavlink_udp");
+
+  const trackConfidence = 0.91;
+  const linkQuality = isUgv ? 0.94 : 0.97;
+  const missionId = mission?.id ?? null;
+  const velocity = isUgv ? [5.5, 0.4, 0] : [14, 1.2, 0.1];
+
   return {
     asset_id: assetId,
     time_s: state.timeline[state.tickIndex] ?? Math.round(elapsedS),
     position,
-    velocity_mps: isUgv ? [5.5, 0.4, 0] : [14, 1.2, 0.1],
+    velocity_mps: velocity,
     heading_deg: (elapsedS * (isUgv ? 8 : 16)) % 360,
-    mission_id: mission?.id ?? null,
+    mission_id: missionId,
     status: "edge-live",
     battery_wh: isUgv ? 3725 : 690,
     c2_node_id: isUgv ? "ground-control-west" : "ground-control-east",
-    link_profile: isUgv ? "mesh_ground" : "mavlink_udp",
+    link_profile: linkProfile,
+    link_quality: linkQuality,
     source: "dashboard-edge-sim",
-    source_id: edgeIdForAsset(assetId),
-    source_authority: isUgv ? "ROKA Ground Robotics Cell" : "ROKA UTM Cell",
-    track_confidence: 0.91,
+    source_id: edgeId,
+    source_type: device.device_type ?? "edge_gateway",
+    source_authority: device.authority ?? (isUgv ? "ROKA Ground Robotics Cell" : "ROKA UTM Cell"),
+    track_confidence: trackConfidence,
   };
 }
 
 async function emitRegisteredEdgeTelemetry() {
-  const assetIds = registeredEdgeAssetIds();
-  if (!assetIds.length) return { skipped: true, reason: "No registered edge assets" };
+  const assignments = registeredEdgeAssignments();
+  if (!assignments.length) return { skipped: true, reason: "No registered edge assets" };
   const accepted = [];
-  for (const assetId of assetIds) {
-    const result = await postApi("/api/telemetry/ingest", edgeTelemetryPayload(assetId));
+  for (const [index, assignment] of assignments.entries()) {
+    const result = await postApi(
+      "/api/telemetry/ingest",
+      edgeTelemetryPayload(assignment.asset_id, assignment.edge_id, index, assignment)
+    );
     accepted.push(result.payload ?? result);
   }
   const time = state.timeline[state.tickIndex] ?? 0;
@@ -1136,7 +1204,7 @@ function startEdgeMotionLive() {
   if (state.edgeMotionTimer) clearInterval(state.edgeMotionTimer);
   state.edgeMotionTimer = setInterval(async () => {
     if (state.edgeMotionBusy) return;
-    if (!registeredEdgeAssetIds().length) return;
+    if (!registeredEdgeAssignments().length) return;
     state.edgeMotionBusy = true;
     try {
       await emitRegisteredEdgeTelemetry();
@@ -1145,7 +1213,7 @@ function startEdgeMotionLive() {
     } finally {
       state.edgeMotionBusy = false;
     }
-  }, 1500);
+  }, 600);
 }
 async function ingestDashboardUgvTelemetry() {
   await ensureDashboardUgvRegistered();
@@ -1275,7 +1343,7 @@ function drawMap() {
 function drawMapHint() {
   ctx.fillStyle = "rgba(24,32,42,0.72)";
   ctx.font = "14px Segoe UI";
-  ctx.fillText("No protocol edge telemetry. Register an edge device, then run Telemetry.", 24, canvas.height - 28);
+  ctx.fillText("엣지 텔레메트리 없음 — 엣지 디바이스를 등록 후 텔레메트리를 실행하세요", 24, canvas.height - 28);
 }
 function calculateBounds(scenario) {
   const xs = [];
@@ -1364,7 +1432,8 @@ function drawAsset(frame, bounds) {
   const [x, y] = project(frame.position, bounds);
   const external = frame.source && frame.source !== "simulation";
   const active = frame.status === "active" || external;
-  ctx.fillStyle = external ? "#7c3aed" : active ? "#146c94" : "#617080";
+  const isUgv = String(frame.edge_device_type ?? frame.asset_id ?? "").includes("ugv") || String(frame.asset_id ?? "").includes("ground");
+  ctx.fillStyle = external ? (isUgv ? "#7a4e12" : "#7c3aed") : active ? "#146c94" : "#617080";
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1373,7 +1442,7 @@ function drawAsset(frame, bounds) {
   ctx.stroke();
   ctx.fillStyle = "#18202a";
   ctx.font = "13px Segoe UI";
-  ctx.fillText(frame.asset_id, x + 10, y + 4);
+  ctx.fillText(frame.edge_id ?? frame.source_id ?? "unregistered-edge", x + 10, y + 4);
 }
 
 function renderAssetTable() {
@@ -1382,7 +1451,7 @@ function renderAssetTable() {
     <table>
       <thead>
         <tr>
-          <th>Asset</th><th>Status</th><th>Mission</th><th>C2</th><th>Link</th><th>Position</th><th>Battery</th><th>Source</th>
+          <th>엣지</th><th>자산</th><th>상태</th><th>미션</th><th>C2</th><th>링크</th><th>위치</th><th>배터리</th><th>소스</th>
         </tr>
       </thead>
       <tbody>
@@ -1390,14 +1459,15 @@ function renderAssetTable() {
           .map(
             (frame) => `
           <tr>
-            <td>${frame.asset_id}</td>
-            <td>${frame.status}</td>
-            <td>${frame.mission_id ?? "-"}</td>
-            <td>${frame.c2_node_id ?? "-"}</td>
-            <td>${frame.link_profile ?? "-"}</td>
+            <td>${escapeHtml(frame.edge_id ?? frame.source_id ?? "-")}</td>
+            <td>${escapeHtml(frame.asset_id)}</td>
+            <td>${escapeHtml(frame.status)}</td>
+            <td>${escapeHtml(frame.mission_id ?? "-")}</td>
+            <td>${escapeHtml(frame.c2_node_id ?? "-")}</td>
+            <td>${escapeHtml(frame.link_profile ?? "-")}</td>
             <td>${frame.position.map((v) => Number(v).toFixed(1)).join(", ")}</td>
             <td>${Number(frame.battery_wh ?? 0).toFixed(1)} Wh</td>
-            <td>${frame.source ?? "simulation"}</td>
+            <td>${escapeHtml(frame.source_id ?? frame.source ?? "simulation")}</td>
           </tr>`
           )
           .join("")}
@@ -1406,13 +1476,46 @@ function renderAssetTable() {
   document.querySelector("#assetTable").innerHTML = html;
 }
 
+function renderEdgeLiveStatusTable() {
+  const node = document.querySelector("#edgeLiveStatusTable");
+  if (!node) return;
+  const frames = visibleMapFrames();
+  const frameByEdgeAsset = new Map(frames.map((frame) => [`${frame.edge_id ?? frame.source_id}:${frame.asset_id}`, frame]));
+  const rows = registeredEdgeAssignments().map((assignment) => ({
+    ...assignment,
+    frame: frameByEdgeAsset.get(`${assignment.edge_id}:${assignment.asset_id}`),
+  }));
+  if (!rows.length) {
+    node.innerHTML = '<p class="protocol-text">등록된 엣지 디바이스 없음</p>';
+    return;
+  }
+  node.innerHTML = `
+    <table>
+      <thead><tr><th>엣지 ID</th><th>에셋 ID</th><th>유형</th><th>상태</th><th>텔레메트리</th><th>미션</th><th>링크</th><th>위치</th><th>권한</th></tr></thead>
+      <tbody>
+        ${rows.map(({ frame, ...edge }) => `
+          <tr>
+            <td><strong>${escapeHtml(edge.edge_id)}</strong></td>
+            <td>${escapeHtml(edge.asset_id)}</td>
+            <td>${escapeHtml(edge.device_type ?? "-")}</td>
+            <td><span class="protocol-pill ${statusClass(edge.status)}">${escapeHtml(edge.status ?? "registered")}</span></td>
+            <td>${frame ? "live" : "waiting"}</td>
+            <td>${escapeHtml(frame?.mission_id ?? missionForAsset(edge.asset_id)?.id ?? "-")}</td>
+            <td>${escapeHtml(frame?.link_profile ?? (edge.link_profiles ?? [])[0] ?? "-")}</td>
+            <td>${frame ? frame.position.map((v) => Number(v).toFixed(1)).join(", ") : "-"}</td>
+            <td>${escapeHtml(edge.authority ?? "-")}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
 function renderTrackTable() {
   const rows = state.tracks?.tracks ?? [];
   const html = `
     <table>
       <thead>
         <tr>
-          <th>Track</th><th>Primary</th><th>Confidence</th><th>Authority</th><th>Position</th><th>Sources</th><th>Stale</th>
+          <th>트랙</th><th>기본 소스</th><th>신뢰도</th><th>권한</th><th>위치</th><th>소스 수</th><th>지연</th>
         </tr>
       </thead>
       <tbody>
@@ -1444,7 +1547,7 @@ playButton.addEventListener("click", () => {
   disconnectLive();
   state.playing = !state.playing;
   playButton.classList.toggle("active", state.playing);
-  playButton.textContent = state.playing ? "Pause" : "Play";
+  playButton.textContent = state.playing ? "일시정지" : "재생";
 });
 
 liveButton.addEventListener("click", () => {
@@ -1478,19 +1581,25 @@ function bindProtocolButton(selector, label, action) {
   button.addEventListener("click", () => runProtocolAction(label, action));
 }
 
-bindProtocolButton("#protocolHealthButton", "GET /api/health", () => api("/api/health"));
-bindProtocolButton("#protocolRegisterUgvButton", "POST edge register", registerDashboardUgv);
-bindProtocolButton("#protocolHeartbeatUgvButton", "POST edge heartbeat", heartbeatDashboardUgv);
-bindProtocolButton("#protocolTelemetryUgvButton", "POST telemetry ingest", ingestDashboardUgvTelemetry);
-bindProtocolButton("#protocolRequestCommandButton", "POST command request", requestUgvHoldCommand);
-bindProtocolButton("#protocolApproveCommandButton", "POST command approve", approveNextCommand);
-bindProtocolButton("#protocolRequestMissionButton", "POST mission upload request", requestUgvMissionUpload);
-bindProtocolButton("#protocolApproveMissionButton", "POST mission upload approve", approveNextMissionUpload);
-bindProtocolButton("#protocolPollDronebotButton", "GET edge-dronebot work", () => pollEdgeWork("edge-dronebot-01"));
-bindProtocolButton("#protocolPollUgvButton", "GET UGV edge work", () => pollEdgeWork(edgeIdForAsset("ground-convoy-01")));
-bindProtocolButton("#protocolAckLatestButton", "POST edge work ACK", ackLatestApprovedWork);
-bindProtocolButton("#protocolVerifyLogsButton", "GET logs verify", () => api("/api/logs/verify"));
-bindProtocolButton("#injectFaultButton", "POST simulated fault", injectSelectedFault);
+bindProtocolButton("#protocolHealthButton", "GET /api/health — 시스템 점검", () => api("/api/health"));
+// 모달 오프닝 버튼 — 팝업이 열리며 실제 API는 모달 제출 시 호출됨
+document.querySelector("#protocolRegisterUgvButton")?.addEventListener("click", openEdgeRegisterModal);
+document.querySelector("#protocolRequestCommandButton")?.addEventListener("click", openCommandModal);
+document.querySelector("#protocolRequestMissionButton")?.addEventListener("click", openMissionModal);
+bindProtocolButton("#protocolHeartbeatUgvButton", "POST 엣지 심박 전송", heartbeatDashboardUgv);
+bindProtocolButton("#protocolTelemetryUgvButton", "POST 텔레메트리 전송 (지도 갱신)", ingestDashboardUgvTelemetry);
+bindProtocolButton("#protocolApproveCommandButton", "POST 커맨드 승인", approveNextCommand);
+bindProtocolButton("#protocolApproveMissionButton", "POST 미션 업로드 승인", approveNextMissionUpload);
+bindProtocolButton("#protocolPollDronebotButton", "GET UAV 작업 조회", () => pollEdgeWork("edge-dronebot-01"));
+bindProtocolButton("#protocolPollUgvButton", "GET UGV 작업 조회", () => pollEdgeWork(edgeIdForAsset("ground-convoy-01")));
+bindProtocolButton("#protocolAckLatestButton", "POST 작업 ACK 전송", ackLatestApprovedWork);
+bindProtocolButton("#protocolVerifyLogsButton", "GET 감사 로그 검증", async () => {
+  const result = await api("/api/logs/verify");
+  state.logIntegrity = result.payload;
+  renderLogStorage();
+  return result;
+});
+bindProtocolButton("#injectFaultButton", "POST 시뮬레이션 폴트 주입", injectSelectedFault);
 
 const refreshProtocolLogButton = document.querySelector("#refreshProtocolLogButton");
 if (refreshProtocolLogButton) refreshProtocolLogButton.addEventListener("click", () => refreshProtocolLogsOnly().catch(console.error));
@@ -1511,7 +1620,333 @@ if (toggleHeartbeatButton) {
     refreshProtocolLogsOnly().catch(console.error);
   });
 }
+// ── 침입 탐지 (Intrusion Detection) ──────────────────────────────────
+// 외부 공격 컨테이너가 주입하는 특징적 필드로 탐지
+const IDS_SIGNATURES = [
+  // 기존 시나리오 시그니처
+  { field: "source_authority", value: "EXTERNAL-ATTACKER", label: "외부 공격자 권한" },
+  { field: "source", prefix: "GNSS-SPOOF",   label: "GNSS 스푸핑 소스" },
+  { field: "source", prefix: "DYN-SPOOF",    label: "동역학 GPS 스푸핑" },
+  { field: "source", prefix: "SYNC-DISRUPT", label: "협동 동기화 교란" },
+  { field: "source", prefix: "ATTACK:",      label: "공격 소스 마커" },
+  // 어드벤스드 시나리오 시그니처
+  { field: "source", prefix: "SYBIL-FLEET",  label: "Sybil 유령 함대" },
+  { field: "source", prefix: "FDI-FUSION",   label: "Track Fusion FDI" },
+  { field: "source", prefix: "ALERT-NOISE",  label: "Alert Fatigue 노이즈" },
+];
+
+function _idsCheckTelemetry(payload) {
+  const alerts = [];
+
+  // 알려진 공격 source 필드
+  for (const sig of IDS_SIGNATURES) {
+    const v = payload[sig.field] ?? "";
+    const hit = sig.value ? v === sig.value : v.startsWith(sig.prefix ?? "");
+    if (hit) {
+      alerts.push({
+        severity: "critical",
+        code: sig.label,
+        asset_id: payload.asset_id,
+        edge_id: payload.source_id ?? payload.edge_id,
+        detail: `${sig.field}="${v}"`,
+        time: new Date().toISOString(),
+      });
+    }
+  }
+
+  // 미인가 엣지 ID 패턴 탐지 (edge-attack-*, edge-sybil-*, edge-noise-*)
+  const srcId = payload.source_id ?? "";
+  const ROGUE_PREFIXES = ["edge-attack-", "edge-sybil-", "edge-noise-"];
+  if (ROGUE_PREFIXES.some((p) => srcId.startsWith(p))) {
+    alerts.push({
+      severity: "critical",
+      code: "미인가 엣지 ID",
+      asset_id: payload.asset_id,
+      edge_id: srcId,
+      detail: `등록되지 않은 공격 엣지: ${srcId}`,
+      time: new Date().toISOString(),
+    });
+  }
+
+  // link_quality 급락 탐지 (0.3 미만)
+  if (typeof payload.link_quality === "number" && payload.link_quality < 0.3) {
+    alerts.push({
+      severity: "warning",
+      code: "링크 품질 이상",
+      asset_id: payload.asset_id,
+      edge_id: srcId,
+      detail: `link_quality=${payload.link_quality.toFixed(3)} (임계값: 0.3)`,
+      time: new Date().toISOString(),
+    });
+  }
+
+  // track_confidence 급락 탐지 (0.6 미만)
+  if (typeof payload.track_confidence === "number" && payload.track_confidence < 0.6) {
+    alerts.push({
+      severity: "warning",
+      code: "트랙 신뢰도 이상",
+      asset_id: payload.asset_id,
+      edge_id: srcId,
+      detail: `track_confidence=${payload.track_confidence.toFixed(3)} (임계값: 0.6)`,
+      time: new Date().toISOString(),
+    });
+  }
+
+  return alerts;
+}
+
+function _idsCheckCommand(payload) {
+  const alerts = [];
+  const reqBy = payload.requested_by ?? "";
+  if (reqBy.startsWith("ATTACKER:")) {
+    alerts.push({
+      severity: "critical",
+      code: "커맨드 인젝션 탐지",
+      asset_id: payload.asset_id,
+      edge_id: reqBy,
+      detail: `불법 커맨드 요청: ${payload.command_type} (requested_by="${reqBy}")`,
+      time: new Date().toISOString(),
+    });
+  }
+  return alerts;
+}
+
+function _idsRaiseAlerts(newAlerts) {
+  if (!newAlerts.length) return;
+  for (const alert of newAlerts) {
+    const isDup = state.intrusionAlerts.some(
+      (a) => a.code === alert.code && a.asset_id === alert.asset_id && a.edge_id === alert.edge_id
+        && (new Date(alert.time) - new Date(a.time)) < 10000
+    );
+    if (!isDup) {
+      state.intrusionAlerts.unshift(alert);
+      if (state.intrusionAlerts.length > 50) state.intrusionAlerts.pop();
+    }
+  }
+  renderIntrusionAlerts();
+}
+
+function renderIntrusionAlerts() {
+  const el = document.querySelector("#intrusionAlertList");
+  if (!el) return;
+  if (!state.intrusionAlerts.length) {
+    el.innerHTML = "<li class='ids-clear'>탐지된 침입 없음</li>";
+    return;
+  }
+  el.innerHTML = state.intrusionAlerts.map((a) => {
+    const ts = new Date(a.time).toLocaleTimeString("ko-KR");
+    const cls = a.severity === "critical" ? "ids-critical" : "ids-warning";
+    const icon = a.severity === "critical" ? "🚨" : "⚠";
+    return `<li class="${cls}">${icon} [${ts}] <strong>${a.code}</strong> — ${a.asset_id ?? ""} ${a.edge_id ? `(${a.edge_id})` : ""}: ${a.detail}</li>`;
+  }).join("");
+}
+
+// 주기적으로 GCS 텔레메트리 로그에서 침입 신호 폴링 (5초 간격)
+async function pollIntrusionDetection() {
+  try {
+    // 최근 트랙 데이터에서 이상 필드 탐지
+    const tracks = await api("/api/tracks");
+    const entries = tracks?.payload?.tracks ?? [];
+    const alerts = [];
+    for (const entry of entries) {
+      alerts.push(..._idsCheckTelemetry(entry));
+    }
+
+    // 최근 커맨드에서 ATTACKER 요청 탐지
+    const cmds = await api("/api/commands/list").catch(() => null);
+    for (const cmd of (cmds?.payload?.commands ?? [])) {
+      alerts.push(..._idsCheckCommand(cmd));
+    }
+
+    _idsRaiseAlerts(alerts);
+  } catch (_) {
+    // 폴링 실패는 무시
+  }
+}
+
+setInterval(() => pollIntrusionDetection().catch(() => {}), 5000);
+
+// ── 모달: 엣지 디바이스 등록 ──────────────────────────────────────────
+const COMMAND_TYPES = [
+  { value: "hold_position",     label: "홀드 포지션",    desc: "현재 위치에서 정지 유지" },
+  { value: "return_to_launch",  label: "귀환",           desc: "이륙 지점으로 자동 복귀" },
+  { value: "goto",              label: "좌표 이동",      desc: "지정 좌표로 이동" },
+  { value: "land",              label: "착륙",           desc: "현재 위치에서 착륙" },
+  { value: "set_mode",          label: "모드 변경",      desc: "비행 모드 전환 (GUIDED/AUTO 등)" },
+  { value: "waypoint_advance",  label: "웨이포인트 전진", desc: "다음 미션 경유점으로 이동" },
+];
+
+let _selectedCommandType = "hold_position";
+let _selectedMissionId = null;
+
+function openEdgeRegisterModal() {
+  const modal = document.querySelector("#edgeRegisterModal");
+  if (!modal) return;
+  updateEdgeDockerHint();
+  document.querySelector("#edgeRegDeviceType")?.addEventListener("change", updateEdgeDockerHint);
+  document.querySelector("#edgeRegAssetId")?.addEventListener("change", updateEdgeDockerHint);
+  document.querySelector("#edgeRegEdgeId")?.addEventListener("input", updateEdgeDockerHint);
+  document.querySelector("#edgeRegAuthority")?.addEventListener("input", updateEdgeDockerHint);
+  document.querySelector("#edgeRegLinkProfile")?.addEventListener("change", updateEdgeDockerHint);
+  modal.showModal();
+}
+
+function updateEdgeDockerHint() {
+  const deviceType = document.querySelector("#edgeRegDeviceType")?.value ?? "ugv_edge";
+  const assetId    = document.querySelector("#edgeRegAssetId")?.value ?? "ground-convoy-01";
+  const edgeId     = document.querySelector("#edgeRegEdgeId")?.value ?? "edge-dashboard-ugv-01";
+  const authority  = document.querySelector("#edgeRegAuthority")?.value ?? "ROKA UTM Cell";
+  const linkProfile= document.querySelector("#edgeRegLinkProfile")?.value ?? "mavlink_udp";
+  const cmd = [
+    `docker run --rm --network dah-ops-net`,
+    `  dah_temp-dah-gcs uas-utm-edge`,
+    `  --service-url http://dah-gcs:8080`,
+    `  --edge-id ${edgeId}`,
+    `  --device-type ${deviceType}`,
+    `  --asset ${assetId}`,
+    `  --authority "${authority}"`,
+    `  --link-profile ${linkProfile}`,
+    `  --software-version dashboard-1.0`,
+    `  --emit-sample-telemetry`,
+  ].join("\n");
+  const hint = document.querySelector("#edgeDockerHint");
+  if (hint) hint.innerHTML = `<strong>Docker 명령어</strong><br><code id="edgeDockerCmd">${cmd}</code>`;
+}
+
+async function submitEdgeRegistration() {
+  const edgeId      = document.querySelector("#edgeRegEdgeId")?.value?.trim() ?? "edge-dashboard-ugv-01";
+  const deviceType  = document.querySelector("#edgeRegDeviceType")?.value ?? "ugv_edge";
+  const assetId     = document.querySelector("#edgeRegAssetId")?.value ?? "ground-convoy-01";
+  const authority   = document.querySelector("#edgeRegAuthority")?.value?.trim() ?? "ROKA UTM Cell";
+  const linkProfile = document.querySelector("#edgeRegLinkProfile")?.value ?? "mavlink_udp";
+  document.querySelector("#edgeRegisterModal")?.close();
+  const result = await runProtocolAction(`POST 엣지 등록 — ${edgeId}`, () =>
+    postApi("/api/edge/devices/register", {
+      edge_id: edgeId,
+      device_type: deviceType,
+      asset_ids: [assetId],
+      authority,
+      link_profiles: [linkProfile],
+      capabilities: ["telemetry_ingest", "approved_work_poll", "ack_work"],
+      software_version: "dashboard-1.0",
+    })
+  );
+  await afterEdgeRegistration(result);
+  return result;
+}
+
+// ── 모달: 커맨드 발행 ──────────────────────────────────────────────────
+function openCommandModal() {
+  const modal = document.querySelector("#commandModal");
+  if (!modal) return;
+  _renderCommandTypeList();
+  modal.showModal();
+}
+
+function _renderCommandTypeList() {
+  const container = document.querySelector("#commandTypeList");
+  if (!container) return;
+  container.innerHTML = COMMAND_TYPES.map((ct) => `
+    <label class="cmd-type-item${ct.value === _selectedCommandType ? " selected" : ""}">
+      <input type="radio" name="cmdType" value="${ct.value}"${ct.value === _selectedCommandType ? " checked" : ""}>
+      <div class="cmd-type-info">
+        <strong>${ct.label}</strong>
+        <span>${ct.desc}</span>
+      </div>
+    </label>`).join("");
+  container.querySelectorAll("input[type=radio]").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      _selectedCommandType = radio.value;
+      container.querySelectorAll(".cmd-type-item").forEach((el) => el.classList.remove("selected"));
+      radio.closest(".cmd-type-item")?.classList.add("selected");
+    });
+  });
+}
+
+async function submitCommandFromModal() {
+  const assetId    = document.querySelector("#cmdModalAssetId")?.value ?? "ground-convoy-01";
+  const autoApprove = document.querySelector("#cmdAutoApprove")?.checked ?? true;
+  document.querySelector("#commandModal")?.close();
+  await runProtocolAction(`POST 커맨드 요청 — ${_selectedCommandType} → ${assetId}`, async () => {
+    const result = await postApi("/api/commands/request", {
+      asset_id: assetId,
+      command_type: _selectedCommandType,
+      requested_by: "dashboard-operator",
+      dry_run: true,
+    });
+    if (autoApprove) {
+      const commandId = result?.payload?.command_id;
+      if (commandId) await postApi("/api/commands/approve", { command_id: commandId });
+    }
+    return result;
+  });
+}
+
+// ── 모달: 미션 발행 ────────────────────────────────────────────────────
+function openMissionModal() {
+  const modal = document.querySelector("#missionModal");
+  if (!modal) return;
+  _renderMissionCardList();
+  modal.showModal();
+}
+
+function _renderMissionCardList() {
+  const container = document.querySelector("#missionCardList");
+  if (!container) return;
+  const missions = state.scenario?.missions ?? [];
+  const approved = new Set(state.summary?.approved_missions ?? []);
+  if (!missions.length) {
+    container.innerHTML = '<p class="modal-hint">미션 목록을 불러오는 중...</p>';
+    return;
+  }
+  container.innerHTML = missions.map((m) => {
+    const isApproved = approved.has(m.id);
+    const selected   = m.id === _selectedMissionId || (!_selectedMissionId && isApproved);
+    if (!_selectedMissionId && isApproved) _selectedMissionId = m.id;
+    return `
+      <label class="mission-card${selected ? " selected" : ""}${!isApproved ? " unavailable" : ""}"
+             title="${isApproved ? "클릭하여 선택" : "UTM 미승인 미션 — 업로드 불가"}">
+        <input type="radio" name="missionId" value="${m.id}"${selected ? " checked" : ""}${!isApproved ? " disabled" : ""}>
+        <div class="mission-card-info">
+          <strong>${m.id}</strong>
+          <span>${m.mission_type ?? "transit"} · 자산: ${m.asset_id ?? "-"} · 경유점: ${(m.route ?? []).length}개</span>
+        </div>
+        <span class="mission-badge ${isApproved ? "approved" : ""}">${isApproved ? "UTM 승인" : "UTM 미승인"}</span>
+      </label>`;
+  }).join("");
+  container.querySelectorAll("input[type=radio]").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      _selectedMissionId = radio.value;
+      container.querySelectorAll(".mission-card").forEach((el) => el.classList.remove("selected"));
+      radio.closest(".mission-card")?.classList.add("selected");
+    });
+  });
+}
+
+async function submitMissionFromModal() {
+  const missionId   = _selectedMissionId;
+  const autoApprove = document.querySelector("#missionAutoApprove")?.checked ?? true;
+  document.querySelector("#missionModal")?.close();
+  if (!missionId) { alert("미션을 선택하세요"); return; }
+  await runProtocolAction(`POST 미션 업로드 요청 — ${missionId}`, async () => {
+    const result = await postApi("/api/mission-uploads/request", {
+      mission_id: missionId,
+      requested_by: "dashboard-operator",
+    });
+    if (autoApprove) {
+      const uploadId = result?.payload?.upload_id;
+      if (uploadId) await postApi("/api/mission-uploads/approve", { upload_id: uploadId });
+    }
+    return result;
+  });
+}
+
+// ── 모달 버튼 이벤트 연결 ───────────────────────────────────────────────
+document.querySelector("#edgeRegSubmitButton")?.addEventListener("click", () => submitEdgeRegistration().catch(console.error));
+document.querySelector("#cmdSubmitButton")?.addEventListener("click", () => submitCommandFromModal().catch(console.error));
+document.querySelector("#missionSubmitButton")?.addEventListener("click", () => submitMissionFromModal().catch(console.error));
+
 bootstrap().catch((error) => {
-  document.querySelector("#serviceStatus").textContent = "API Error";
+  document.querySelector("#serviceStatus").textContent = "API 오류";
   console.error(error);
 });

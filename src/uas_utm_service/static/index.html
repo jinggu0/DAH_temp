@@ -1,192 +1,289 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DAH UAS/UGV Tactical Chain Dashboard</title>
+    <title>DAH UAS/UGV 전술 체인 대시보드</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>DAH UAS/UGV Tactical Chain Dashboard</h1>
-        <p id="scenarioName">Loading scenario</p>
+        <h1>DAH UAS/UGV 전술 체인 대시보드</h1>
+        <p id="scenarioName">시나리오 로딩 중</p>
       </div>
-      <nav class="status-strip" aria-label="service status">
+      <nav class="status-strip" aria-label="서비스 상태">
         <span id="serviceStatus">API</span>
         <span id="clockLabel">T+0s</span>
-        <span id="linkRate">Link 0%</span>
-        <span id="modeLabel">Replay</span>
+        <span id="linkRate">링크 0%</span>
+        <span id="modeLabel">재생</span>
       </nav>
     </header>
 
-    <section id="dahSummaryCards" class="gcs-summary-grid" aria-label="DAH GCS status summary"></section>
+    <section id="dahSummaryCards" class="gcs-summary-grid" aria-label="GCS 상태 요약"></section>
 
-    <section class="protocol-control-bar" aria-label="protocol console">
+    <!-- ── 운용 제어 콘솔 ── -->
+    <section class="protocol-control-bar" aria-label="운용 제어 콘솔">
       <div class="section-heading-row protocol-control-heading">
         <div>
-          <h2>Protocol Console</h2>
-          <p class="protocol-text">Run local UAS/UTM protocol steps. All commands and faults stay dry-run or simulation-only.</p>
+          <h2>운용 제어 콘솔</h2>
+          <p class="protocol-text">로컬 UAS/UTM 프로토콜 단계 실행 — 모든 커맨드·폴트는 시뮬레이션 전용이며 실제 무기·통신망에 영향을 주지 않습니다.</p>
         </div>
         <ul id="protocolRunList" class="decision-list protocol-run-list"></ul>
       </div>
-      <div class="protocol-actions">
-        <button id="protocolHealthButton" title="Call the health envelope endpoint">Health</button>
-        <button id="protocolRegisterUgvButton" title="Register the dashboard UGV edge device">Register UGV</button>
-        <button id="protocolHeartbeatUgvButton" title="Send edge heartbeat JSON">Heartbeat</button>
-        <button id="protocolTelemetryUgvButton" title="Ingest UGV telemetry sample">Telemetry</button>
-        <button id="protocolRequestCommandButton" title="Request a UGV hold-position command">Request Cmd</button>
-        <button id="protocolApproveCommandButton" title="Approve the next pending command">Approve Cmd</button>
-        <button id="protocolRequestMissionButton" title="Request UGV MAVLink mission upload">Request Mission</button>
-        <button id="protocolApproveMissionButton" title="Approve the next pending mission upload">Approve Mission</button>
-        <button id="protocolPollDronebotButton" title="Poll approved work for UAV edge">Poll UAV</button>
-        <button id="protocolPollUgvButton" title="Poll approved work for UGV edge">Poll UGV</button>
-        <button id="protocolAckLatestButton" title="ACK latest approved command or mission upload">ACK Latest</button>
-        <button id="protocolVerifyLogsButton" title="Verify audit hash chain integrity">Verify Logs</button>
-      </div>
+
+      <div class="console-groups">
+        <!-- 그룹 1: 시스템 -->
+        <div class="console-group">
+          <span class="console-group-label">시스템</span>
+          <div class="console-group-buttons">
+            <button id="protocolHealthButton" class="console-btn" title="GET /api/health — 서비스 상태 확인">
+              <span class="console-btn-icon">🔍</span>
+              <span class="console-btn-label">시스템 점검</span>
+            </button>
+            <button id="protocolVerifyLogsButton" class="console-btn" title="감사 로그 해시 체인 무결성 검증">
+              <span class="console-btn-icon">🔐</span>
+              <span class="console-btn-label">로그 검증</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 그룹 2: 엣지 디바이스 -->
+        <div class="console-group">
+          <span class="console-group-label">엣지 디바이스</span>
+          <div class="console-group-buttons">
+            <button id="protocolRegisterUgvButton" class="console-btn console-btn-modal" title="엣지 디바이스 등록 팝업 — Docker 컨테이너 스펙 선택 후 등록">
+              <span class="console-btn-icon">📡</span>
+              <span class="console-btn-label">엣지 등록</span>
+              <span class="console-btn-modal-badge">▾ 팝업</span>
+            </button>
+            <button id="protocolHeartbeatUgvButton" class="console-btn" title="POST /api/edge/devices/heartbeat — 엣지 심박 전송">
+              <span class="console-btn-icon">💓</span>
+              <span class="console-btn-label">심박 전송</span>
+            </button>
+            <button id="protocolTelemetryUgvButton" class="console-btn" title="POST /api/telemetry/ingest — 텔레메트리 전송 (지도 갱신)">
+              <span class="console-btn-icon">📶</span>
+              <span class="console-btn-label">텔레메트리</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 그룹 3: C2 커맨드 -->
+        <div class="console-group">
+          <span class="console-group-label">C2 커맨드</span>
+          <div class="console-group-buttons">
+            <button id="protocolRequestCommandButton" class="console-btn console-btn-modal" title="커맨드 발행 팝업 — 유형 선택 후 요청">
+              <span class="console-btn-icon">🎯</span>
+              <span class="console-btn-label">커맨드 발행</span>
+              <span class="console-btn-modal-badge">▾ 팝업</span>
+            </button>
+            <button id="protocolApproveCommandButton" class="console-btn" title="대기 중인 커맨드 승인">
+              <span class="console-btn-icon">✅</span>
+              <span class="console-btn-label">커맨드 승인</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 그룹 4: 미션 -->
+        <div class="console-group">
+          <span class="console-group-label">미션</span>
+          <div class="console-group-buttons">
+            <button id="protocolRequestMissionButton" class="console-btn console-btn-modal" title="미션 업로드 팝업 — 목록에서 미션 선택 후 요청">
+              <span class="console-btn-icon">🗺️</span>
+              <span class="console-btn-label">미션 발행</span>
+              <span class="console-btn-modal-badge">▾ 팝업</span>
+            </button>
+            <button id="protocolApproveMissionButton" class="console-btn" title="대기 중인 미션 업로드 승인">
+              <span class="console-btn-icon">✅</span>
+              <span class="console-btn-label">미션 승인</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 그룹 5: 작업 폴링/ACK -->
+        <div class="console-group">
+          <span class="console-group-label">작업 폴링/ACK</span>
+          <div class="console-group-buttons">
+            <button id="protocolPollDronebotButton" class="console-btn" title="GET /api/edge/work — UAV 승인 작업 조회">
+              <span class="console-btn-icon">🚁</span>
+              <span class="console-btn-label">UAV 폴링</span>
+            </button>
+            <button id="protocolPollUgvButton" class="console-btn" title="GET /api/edge/work — UGV 승인 작업 조회">
+              <span class="console-btn-icon">🚗</span>
+              <span class="console-btn-label">UGV 폴링</span>
+            </button>
+            <button id="protocolAckLatestButton" class="console-btn" title="POST /api/edge/work/ack — 최근 승인 작업 ACK">
+              <span class="console-btn-icon">📨</span>
+              <span class="console-btn-label">ACK 전송</span>
+            </button>
+          </div>
+        </div>
+
+      </div><!-- /.console-groups -->
     </section>
+
     <main class="layout">
-      <section class="map-surface" aria-label="airspace map">
-                <section class="chain-panel" aria-label="tactical protocol chain">
+      <section class="map-surface" aria-label="공역 지도">
+        <section class="chain-panel" aria-label="전술 프로토콜 체인">
           <div class="section-heading-row">
             <div>
-              <h2>Tactical Protocol Chain</h2>
-              <p class="protocol-text">UAV/UGV to GCS to simulated TMMR/TICN/C2 chain. Simulated components are not real military systems.</p>
+              <h2>전술 프로토콜 체인</h2>
+              <p class="protocol-text">UAV/UGV → GCS → 시뮬레이션 TMMR/TICN/C2 체인 — 시뮬레이션 구성요소는 실제 군사 시스템이 아닙니다.</p>
             </div>
-            <span id="chainStatus" class="protocol-pill status-neutral">loading</span>
+            <span id="chainStatus" class="protocol-pill status-neutral">로딩 중</span>
           </div>
           <div id="chainDiagram" class="chain-diagram"></div>
         </section>
         <canvas id="airspaceCanvas" width="1100" height="720"></canvas>
         <div class="timeline">
-          <button id="playButton" title="Play or pause replay">Play</button>
-          <button id="liveButton" title="Connect to live telemetry stream">Live</button>
-          <input id="timeSlider" type="range" min="0" max="1" value="0" step="1" aria-label="timeline">
+          <button id="playButton" title="재생 또는 일시정지">재생</button>
+          <button id="liveButton" title="실시간 텔레메트리 스트림 연결">라이브</button>
+          <input id="timeSlider" type="range" min="0" max="1" value="0" step="1" aria-label="타임라인">
         </div>
+        <!-- Codex 추가: 엣지 디바이스 실시간 상태 표 -->
+        <section class="map-edge-status" aria-label="엣지 디바이스 실시간 상태">
+          <div class="section-heading-row">
+            <div>
+              <h2>엣지 디바이스 실시간 상태</h2>
+              <p class="protocol-text">등록된 각 엣지 디바이스가 별도 행으로 표시됩니다. 지도 마커는 에셋 ID가 아닌 엣지 ID를 사용합니다.</p>
+            </div>
+          </div>
+          <div id="edgeLiveStatusTable" class="asset-table edge-live-status-table"></div>
+        </section>
       </section>
 
       <aside class="side-panel">
+        <section class="ids-panel">
+          <h2 class="ids-panel-title">침입 탐지 경보</h2>
+          <ul id="intrusionAlertList" class="decision-list ids-alert-list">
+            <li class="ids-clear">탐지된 침입 없음</li>
+          </ul>
+        </section>
+
         <section>
-          <h2>Alerts</h2>
+          <h2>경보</h2>
           <ul id="alertList" class="decision-list alert-list"></ul>
         </section>
 
         <section>
-          <h2>Defense Decisions</h2>
+          <h2>방어 결정</h2>
           <ul id="defenseDecisionList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
-          <h2>Fault Injection Events</h2>
+          <h2>폴트 주입 이벤트</h2>
           <ul id="faultEventList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
-          <h2>Recommended Responses</h2>
+          <h2>권장 대응</h2>
           <ul id="recommendedResponseList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
-          <h2>Safe Fault Injection</h2>
-          <p class="protocol-text">Local Docker simulation only. No real attack traffic or actuator command is generated.</p>
+          <h2>안전 폴트 주입</h2>
+          <p class="protocol-text">로컬 Docker 시뮬레이션 전용 — 실제 공격 트래픽·액추에이터 명령이 생성되지 않습니다.</p>
           <div class="fault-control">
-            <select id="faultTypeSelect" aria-label="fault type"></select>
-            <button id="injectFaultButton" title="Inject a local simulated fault">Inject</button>
+            <select id="faultTypeSelect" aria-label="폴트 유형"></select>
+            <button id="injectFaultButton" title="로컬 시뮬레이션 폴트 주입">주입</button>
           </div>
         </section>
+
         <section>
-          <h2>Operations</h2>
+          <h2>작전 현황</h2>
           <dl class="metrics">
-            <div><dt>Assets</dt><dd id="assetCount">0</dd></div>
-            <div><dt>Missions</dt><dd id="missionCount">0</dd></div>
-            <div><dt>Approved</dt><dd id="approvedCount">0</dd></div>
-            <div><dt>C2 Nodes</dt><dd id="c2Count">0</dd></div>
+            <div><dt>자산</dt><dd id="assetCount">0</dd></div>
+            <div><dt>미션</dt><dd id="missionCount">0</dd></div>
+            <div><dt>승인</dt><dd id="approvedCount">0</dd></div>
+            <div><dt>C2 노드</dt><dd id="c2Count">0</dd></div>
           </dl>
         </section>
 
         <section>
-          <h2>UTM Decisions</h2>
+          <h2>UTM 결정</h2>
           <ul id="decisionList" class="decision-list"></ul>
         </section>
+
         <section>
-          <h2>C2 Command Approval</h2>
+          <h2>C2 커맨드 승인</h2>
           <dl class="metrics compact-metrics">
-            <div><dt>Pending</dt><dd id="pendingCommandCount">0</dd></div>
-            <div><dt>Gateway</dt><dd id="approvedCommandCount">0</dd></div>
+            <div><dt>대기 중</dt><dd id="pendingCommandCount">0</dd></div>
+            <div><dt>게이트웨이</dt><dd id="approvedCommandCount">0</dd></div>
           </dl>
           <div class="action-row">
-            <button id="requestCommandButton" title="Request a hold-position MAVLink command">Request Hold</button>
-            <button id="approveCommandButton" title="Approve the next pending command">Approve</button>
-            <button id="rejectCommandButton" title="Reject the next pending command">Reject</button>
+            <button id="requestCommandButton" title="홀드 포지션 MAVLink 커맨드 요청">요청</button>
+            <button id="approveCommandButton" title="대기 커맨드 승인">승인</button>
+            <button id="rejectCommandButton" title="대기 커맨드 거부">거부</button>
           </div>
           <ul id="commandQueueList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
-          <h2>Mission Upload Approval</h2>
+          <h2>미션 업로드 승인</h2>
           <dl class="metrics compact-metrics">
-            <div><dt>Pending</dt><dd id="pendingUploadCount">0</dd></div>
-            <div><dt>Gateway</dt><dd id="approvedUploadCount">0</dd></div>
+            <div><dt>대기 중</dt><dd id="pendingUploadCount">0</dd></div>
+            <div><dt>게이트웨이</dt><dd id="approvedUploadCount">0</dd></div>
           </dl>
           <div class="action-row two-actions">
-            <button id="requestMissionUploadButton" title="Request MAVLink mission upload for the first UTM-approved mission">Request Upload</button>
-            <button id="approveMissionUploadButton" title="Approve the next pending mission upload">Approve</button>
+            <button id="requestMissionUploadButton" title="UTM 승인 미션 MAVLink 업로드 요청">업로드 요청</button>
+            <button id="approveMissionUploadButton" title="대기 미션 업로드 승인">승인</button>
           </div>
           <ul id="missionUploadQueueList" class="decision-list queue-list"></ul>
         </section>
 
         <section>
-          <h2>Audit Timeline</h2>
+          <h2>감사 타임라인</h2>
           <ul id="auditTimelineList" class="decision-list queue-list audit-list"></ul>
         </section>
+
         <section>
-          <h2>Log Storage</h2>
+          <h2>로그 저장소</h2>
           <div id="logStorageState" class="message-grid"></div>
           <p id="logStorageLink" class="protocol-text">logs/uas_utm/audit.jsonl</p>
         </section>
 
         <section>
-          <h2>MAVLink Messages</h2>
+          <h2>MAVLink 메시지</h2>
           <div id="mavlinkCounts" class="message-grid"></div>
         </section>
 
         <section>
-          <h2>Track Fusion</h2>
+          <h2>트랙 융합</h2>
           <dl class="metrics">
-            <div><dt>Tracks</dt><dd id="trackCount">0</dd></div>
-            <div><dt>Mode</dt><dd id="fusionMode">-</dd></div>
+            <div><dt>트랙</dt><dd id="trackCount">0</dd></div>
+            <div><dt>모드</dt><dd id="fusionMode">-</dd></div>
           </dl>
         </section>
 
         <section>
-          <h2>Operation Domains</h2>
+          <h2>운용 도메인</h2>
           <ul id="domainList" class="decision-list"></ul>
         </section>
 
         <section>
-          <h2>Edge Devices</h2>
+          <h2>엣지 디바이스</h2>
           <ul id="edgeDeviceList" class="decision-list"></ul>
         </section>
 
         <section>
-          <h2>Protocol Monitor Models</h2>
+          <h2>프로토콜 모니터 모델</h2>
           <div id="protocolMonitorState" class="message-grid"></div>
-          <p id="protocolMonitorBoundary" class="protocol-text">Loading protocol monitor model state</p>
+          <p id="protocolMonitorBoundary" class="protocol-text">프로토콜 모니터 모델 상태 로딩 중</p>
         </section>
 
         <section>
-          <h2>MAVLink Link State</h2>
+          <h2>MAVLink 링크 상태</h2>
           <div id="mavlinkState" class="message-grid"></div>
         </section>
 
         <section>
-          <h2>Baseline Export</h2>
-          <p class="protocol-text"><a href="/api/baseline/export" target="_blank" rel="noreferrer">Open JSON baseline</a></p>
+          <h2>베이스라인 내보내기</h2>
+          <p class="protocol-text"><a href="/api/baseline/export" target="_blank" rel="noreferrer">JSON 베이스라인 열기</a></p>
         </section>
 
         <section>
-          <h2>Protocol Profile</h2>
-          <p id="protocolText" class="protocol-text">Loading protocol envelope</p>
+          <h2>프로토콜 프로파일</h2>
+          <p id="protocolText" class="protocol-text">프로토콜 엔벨로프 로딩 중</p>
         </section>
       </aside>
     </main>
@@ -194,38 +291,39 @@
     <section class="bottom-band">
       <div class="section-heading-row">
         <div>
-          <h2>Protocol Log</h2>
-          <p id="protocolLogStatus" class="protocol-text">Loading protocol events</p><p id="runtimeLogStatus" class="protocol-text">Loading runtime logs</p>
+          <h2>프로토콜 로그</h2>
+          <p id="protocolLogStatus" class="protocol-text">프로토콜 이벤트 로딩 중</p>
+          <p id="runtimeLogStatus" class="protocol-text">런타임 로그 로딩 중</p>
         </div>
         <div class="action-row two-actions protocol-log-actions">
-          <button id="refreshProtocolLogButton" title="Reload protocol log table">Refresh</button>
-          <button id="toggleHeartbeatButton" title="Toggle edge heartbeat noise in protocol log">Show Heartbeat</button>
-          <button id="toggleProtocolLiveButton" title="Pause or resume protocol log polling">Pause Live</button>
+          <button id="refreshProtocolLogButton" title="프로토콜 로그 테이블 새로고침">새로고침</button>
+          <button id="toggleHeartbeatButton" title="프로토콜 로그에서 심박 노이즈 표시/숨기기">심박 표시</button>
+          <button id="toggleProtocolLiveButton" title="프로토콜 로그 폴링 일시정지/재개">실시간 일시정지</button>
         </div>
       </div>
       <div id="protocolLogTable" class="asset-table protocol-log-table"></div>
-      <h2 class="runtime-log-heading">Service Runtime Log</h2>
+      <h2 class="runtime-log-heading">서비스 런타임 로그</h2>
       <div id="runtimeLogTable" class="asset-table runtime-log-table"></div>
     </section>
 
     <section class="bottom-band bottom-grid">
       <section>
-        <h2>Docker Service Status</h2>
+        <h2>Docker 서비스 상태</h2>
         <div id="dockerServiceStatusTable" class="asset-table service-status-table"></div>
       </section>
       <section>
-        <h2>Command Log</h2>
+        <h2>커맨드 로그</h2>
         <div id="commandLogTable" class="asset-table"></div>
       </section>
       <section>
-        <h2>Tactical Message Log</h2>
+        <h2>전술 메시지 로그</h2>
         <div id="tacticalMessageLogTable" class="asset-table"></div>
       </section>
       <section class="scenario-package-panel">
         <div class="section-heading-row">
           <div>
-            <h2>Scenario Packages</h2>
-            <p id="scenarioPackageStatus" class="protocol-text">Loading scenario package index</p>
+            <h2>시나리오 패키지</h2>
+            <p id="scenarioPackageStatus" class="protocol-text">시나리오 패키지 인덱스 로딩 중</p>
           </div>
           <a class="protocol-pill status-neutral" href="/api/scenario-packages" target="_blank" rel="noreferrer">API</a>
         </div>
@@ -234,14 +332,116 @@
     </section>
 
     <section class="bottom-band">
-      <h2>Telemetry Snapshot</h2>
+      <h2>텔레메트리 스냅샷</h2>
       <div id="assetTable" class="asset-table"></div>
     </section>
 
     <section class="bottom-band">
-      <h2>Fused Track Table</h2>
+      <h2>융합 트랙 테이블</h2>
       <div id="trackTable" class="asset-table"></div>
     </section>
+
+    <!-- ── 모달 다이얼로그: 엣지 디바이스 등록 ── -->
+    <dialog id="edgeRegisterModal" class="dash-modal">
+      <form method="dialog" class="modal-form">
+        <h3 class="modal-title">📡 엣지 디바이스 등록</h3>
+        <div class="modal-form-row">
+          <label>디바이스 유형</label>
+          <select id="edgeRegDeviceType">
+            <option value="uav_edge">UAV 엣지 (드론봇)</option>
+            <option value="ugv_edge" selected>UGV 엣지 (지상차량)</option>
+            <option value="payload_edge">페이로드 엣지</option>
+            <option value="c2_gateway">C2 게이트웨이</option>
+          </select>
+        </div>
+        <div class="modal-form-row">
+          <label>에셋 ID</label>
+          <select id="edgeRegAssetId">
+            <option value="ground-convoy-01">ground-convoy-01 (UGV)</option>
+            <option value="small-dronebot-01">small-dronebot-01 (UAV)</option>
+            <option value="rq101-corps-recon-01">rq101-corps-recon-01</option>
+            <option value="maritime-vtol-01">maritime-vtol-01</option>
+          </select>
+        </div>
+        <div class="modal-form-row">
+          <label>엣지 ID</label>
+          <input id="edgeRegEdgeId" type="text" value="edge-dashboard-ugv-01" placeholder="예: edge-dashboard-ugv-01">
+        </div>
+        <div class="modal-form-row">
+          <label>권한</label>
+          <input id="edgeRegAuthority" type="text" value="ROKA UTM Cell" placeholder="예: ROKA UTM Cell">
+        </div>
+        <div class="modal-form-row">
+          <label>링크 프로파일</label>
+          <select id="edgeRegLinkProfile">
+            <option value="mavlink_udp">mavlink_udp</option>
+            <option value="mavlink_tcp">mavlink_tcp</option>
+            <option value="tactical_link">tactical_link</option>
+            <option value="rf_mesh">rf_mesh</option>
+          </select>
+        </div>
+        <div class="modal-form-row">
+          <label>자동 승인</label>
+          <input id="edgeRegAutoApprove" type="checkbox" checked>
+          <span class="modal-hint">등록 즉시 텔레메트리 전송 및 지도 표시</span>
+        </div>
+        <div class="modal-docker-hint" id="edgeDockerHint">
+          <strong>Docker 명령어</strong><br>
+          <code id="edgeDockerCmd">docker run ...</code>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="edgeRegSubmitButton" class="modal-btn-primary">등록</button>
+          <button type="submit" class="modal-btn-cancel">취소</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ── 모달 다이얼로그: 커맨드 발행 ── -->
+    <dialog id="commandModal" class="dash-modal">
+      <form method="dialog" class="modal-form">
+        <h3 class="modal-title">🎯 C2 커맨드 발행</h3>
+        <div class="modal-form-row">
+          <label>대상 자산</label>
+          <select id="cmdModalAssetId">
+            <option value="ground-convoy-01">ground-convoy-01 (UGV)</option>
+            <option value="small-dronebot-01">small-dronebot-01 (UAV)</option>
+            <option value="rq101-corps-recon-01">rq101-corps-recon-01</option>
+            <option value="maritime-vtol-01">maritime-vtol-01</option>
+          </select>
+        </div>
+        <div class="modal-form-row">
+          <label>커맨드 유형</label>
+        </div>
+        <div id="commandTypeList" class="cmd-type-list"></div>
+        <div class="modal-form-row">
+          <label>자동 승인</label>
+          <input id="cmdAutoApprove" type="checkbox" checked>
+          <span class="modal-hint">요청 즉시 자동 승인</span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cmdSubmitButton" class="modal-btn-primary">커맨드 발행</button>
+          <button type="submit" class="modal-btn-cancel">취소</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ── 모달 다이얼로그: 미션 발행 ── -->
+    <dialog id="missionModal" class="dash-modal">
+      <form method="dialog" class="modal-form">
+        <h3 class="modal-title">🗺️ 미션 업로드 요청</h3>
+        <p class="modal-hint">UTM 승인 미션만 선택 가능합니다. 미승인 미션은 비활성화됩니다.</p>
+        <div id="missionCardList" class="mission-card-list"></div>
+        <div class="modal-form-row">
+          <label>자동 승인</label>
+          <input id="missionAutoApprove" type="checkbox" checked>
+          <span class="modal-hint">업로드 요청 즉시 자동 승인</span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="missionSubmitButton" class="modal-btn-primary">미션 업로드 요청</button>
+          <button type="submit" class="modal-btn-cancel">취소</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="/static/app.js"></script>
   </body>

@@ -484,12 +484,17 @@ class ServiceState:
             "source_authority": str(payload.get("source_authority", "External Adapter")),
             "track_confidence": float(payload.get("track_confidence", 0.0)),
         }
+        frame_key = f"{normalized['source_id']}:{asset_id}"
         with self._lock:
-            self.external_frames[asset_id] = normalized
+            self.external_frames[frame_key] = normalized
+            external_asset_count = len({str(frame.get("asset_id")) for frame in self.external_frames.values()})
         return {
             "accepted": True,
             "asset_id": asset_id,
-            "external_asset_count": len(self.external_frames),
+            "source_id": normalized["source_id"],
+            "frame_key": frame_key,
+            "external_frame_count": len(self.external_frames),
+            "external_asset_count": external_asset_count,
         }
 
     def request_command(self, message: dict[str, Any]) -> dict[str, Any]:
@@ -835,7 +840,7 @@ class ServiceState:
 
     def _known_asset_ids(self) -> set[str]:
         asset_ids = {asset.id for asset in self.scenario.assets}
-        asset_ids.update(self.external_frames)
+        asset_ids.update(str(frame.get("asset_id")) for frame in self.external_frames.values() if frame.get("asset_id"))
         return asset_ids
 
     def _asset_by_id(self, asset_id: str):

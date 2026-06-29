@@ -620,7 +620,7 @@ th {
   overflow-wrap: anywhere;
 }
 
-/* ── Status-specific card and node border accents ── */
+/* ?? Status-specific card and node border accents ?? */
 .gcs-card.status-normal  { border-left: 4px solid var(--accent-2); }
 .gcs-card.status-degraded { border-left: 4px solid #b06100; }
 .gcs-card.status-critical { border-left: 4px solid var(--reject); }
@@ -629,7 +629,7 @@ th {
 .chain-node.status-degraded { border-left: 4px solid #b06100; background: #fffbf4; }
 .chain-node.status-critical { border-left: 4px solid var(--reject); background: #fff8f7; }
 
-/* ── Service status table badge variants ── */
+/* ?? Service status table badge variants ?? */
 .sim-badge-emulated {
   border-color: #6b50a8;
   color: #5a3f94;
@@ -642,7 +642,7 @@ th {
   background: #edf7ef;
 }
 
-/* ── Service status table column formatting ── */
+/* ?? Service status table column formatting ?? */
 .boundary-cell {
   white-space: normal;
   font-size: 12px;
@@ -665,4 +665,329 @@ th {
 
 .link-cell a:hover {
   text-decoration: underline;
+}
+
+.map-edge-status {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.map-edge-status .section-heading-row {
+  margin-bottom: 8px;
+}
+
+.edge-live-status-table td:nth-child(8),
+.edge-live-status-table td:nth-child(9) {
+  white-space: normal;
+  min-width: 180px;
+}
+
+/* ── 침입 탐지 경보 패널 ── */
+.ids-panel {
+  border: 2px solid #c0392b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff8f8;
+  margin-bottom: 12px;
+}
+.ids-panel-title {
+  color: #c0392b;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.04em;
+}
+.ids-alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.ids-alert-list li {
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.ids-clear {
+  color: #27ae60;
+  font-style: italic;
+}
+.ids-critical {
+  background: #fde8e8;
+  color: #7b0000;
+  border-left: 3px solid #c0392b;
+  animation: ids-blink 1.5s ease-in-out infinite alternate;
+}
+.ids-warning {
+  background: #fef9e7;
+  color: #7d6608;
+  border-left: 3px solid #f39c12;
+}
+@keyframes ids-blink {
+  from { opacity: 0.85; }
+  to   { opacity: 1; }
+}
+
+/* ── 운용 제어 콘솔 그룹 레이아웃 ── */
+.console-groups {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.console-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.console-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.console-group-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.console-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 88px;
+  height: 72px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.console-btn:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+.console-btn-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.console-btn-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+  text-align: center;
+  line-height: 1.2;
+}
+.console-btn-modal {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: #f4fafd;
+}
+.console-btn-modal-badge {
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 700;
+}
+/* 기존 protocol-actions 그리드는 숨김 */
+.protocol-control-bar .protocol-actions {
+  display: none;
+}
+
+/* ── 모달 다이얼로그 ── */
+.dash-modal {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0;
+  min-width: 480px;
+  max-width: 600px;
+  background: var(--surface);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.dash-modal::backdrop {
+  background: rgba(0,0,0,0.45);
+}
+.modal-form {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.modal-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modal-form-row label {
+  min-width: 100px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.modal-form-row input[type="text"],
+.modal-form-row select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 13px;
+  font-family: inherit;
+}
+.modal-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.modal-docker-hint {
+  background: #1a1f2e;
+  color: #c8d6e5;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.modal-docker-hint code {
+  display: block;
+  margin-top: 6px;
+  font-family: monospace;
+  word-break: break-all;
+  color: #7ecfb3;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.modal-btn-primary {
+  padding: 8px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.modal-btn-primary:hover {
+  opacity: 0.88;
+}
+.modal-btn-cancel {
+  padding: 8px 16px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 커맨드 유형 선택 리스트 */
+.cmd-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.cmd-type-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--panel);
+  transition: border-color 0.12s, background 0.12s;
+}
+.cmd-type-item.selected {
+  border-color: var(--accent);
+  background: #eef7ff;
+}
+.cmd-type-item input[type="radio"] {
+  margin-top: 2px;
+}
+.cmd-type-info strong {
+  font-size: 13px;
+  display: block;
+}
+.cmd-type-info span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 미션 카드 선택 리스트 */
+.mission-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.mission-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--panel);
+  transition: border-color 0.12s;
+}
+.mission-card.selected {
+  border-color: var(--accent);
+  background: #eef7ff;
+}
+.mission-card.unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mission-card input[type="radio"] {
+  margin-top: 3px;
+}
+.mission-card-info {
+  flex: 1;
+}
+.mission-card-info strong {
+  font-size: 13px;
+  display: block;
+}
+.mission-card-info span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.mission-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--line);
+  color: var(--muted);
+}
+.mission-badge.approved {
+  background: #d4f0d4;
+  color: #1a6b1a;
 }
