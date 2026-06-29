@@ -178,6 +178,14 @@ class ServiceState:
         with self._lock:
             return self.edge_registry.acknowledge(message)
 
+    def deregister_edge_device(self, edge_id: str) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.deregister(edge_id)
+
+    def clear_edge_devices(self) -> dict[str, Any]:
+        with self._lock:
+            return self.edge_registry.clear_all()
+
     def service_status_payload(self) -> dict[str, Any]:
         edge_payload = self.edge_devices_payload()
         alerts = self.alerts_payload(limit=20)

@@ -210,6 +210,28 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 return
             self._send_json(envelope(message_type=message_type, payload=payload), status=success_status)
 
+        def do_DELETE(self) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path == "/api/edge/devices":
+                payload = state.clear_edge_devices()
+                self._send_json(envelope(message_type="utm.edge.devices.cleared", payload=payload))
+            elif path.startswith("/api/edge/devices/"):
+                edge_id = path.removeprefix("/api/edge/devices/")
+                try:
+                    payload = state.deregister_edge_device(edge_id)
+                    self._send_json(envelope(message_type="utm.edge.device.deregistered", payload=payload))
+                except ValueError as exc:
+                    self._send_json(
+                        envelope(message_type="utm.edge.device.deregistered", payload={"accepted": False, "error": str(exc)}),
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+            else:
+                self._send_json(
+                    envelope(message_type="utm.error", payload={"error": "not_found", "path": path}),
+                    status=HTTPStatus.NOT_FOUND,
+                )
+
         def log_message(self, format: str, *args: object) -> None:
             rendered = format % args
             remote = self.address_string()

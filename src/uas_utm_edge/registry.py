@@ -120,6 +120,19 @@ class EdgeRegistry:
         self.state._audit("edge_work.acknowledged", ack)
         return ack
 
+    def deregister(self, edge_id: str) -> dict[str, Any]:
+        self._get_device(edge_id)
+        del self.devices[edge_id]
+        self.state._audit("edge_device.deregistered", {"edge_id": edge_id})
+        return {"edge_id": edge_id, "deregistered": True}
+
+    def clear_all(self) -> dict[str, Any]:
+        edge_ids = list(self.devices.keys())
+        self.devices.clear()
+        self.ack_log.clear()
+        self.state._audit("edge_device.all_cleared", {"count": len(edge_ids), "edge_ids": edge_ids})
+        return {"cleared": len(edge_ids), "edge_ids": edge_ids}
+
     def _get_device(self, edge_id: str) -> dict[str, Any]:
         device = self.devices.get(edge_id)
         if device is None:

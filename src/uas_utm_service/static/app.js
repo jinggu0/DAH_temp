@@ -40,8 +40,18 @@ const slider = document.querySelector("#timeSlider");
 const playButton = document.querySelector("#playButton");
 const liveButton = document.querySelector("#liveButton");
 
-async function api(path) {
-  const response = await fetch(path, { cache: "no-store" });
+async function api(path, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(path, { cache: "no-store", signal: controller.signal });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") throw new Error(`타임아웃 (${timeoutMs / 1000}s): ${path}`);
+    throw err;
+  }
+  clearTimeout(timer);
   let body = null;
   try {
     body = await response.json();
@@ -52,12 +62,23 @@ async function api(path) {
   return body;
 }
 
-async function postApi(path, payload) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload }),
-  });
+async function postApi(path, payload, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") throw new Error(`타임아웃 (${timeoutMs / 1000}s): ${path}`);
+    throw err;
+  }
+  clearTimeout(timer);
   let body = null;
   try {
     body = await response.json();
@@ -69,7 +90,8 @@ async function postApi(path, payload) {
 }
 
 async function bootstrap() {
-  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, logIntegrity, protocolLogs, runtimeLogs, dashboard, chain, alerts, protocolMonitor, serviceStatus, scenarioPackages] = await Promise.all([
+  // /api/logs/verify 는 전체 해시체인 검증으로 느림 — bootstrap 에서 제외, 버튼 클릭 시만 호출
+  const [health, protocol, scenario, summary, decisions, timeline, operationProfile, edgeDevices, commands, missionUploads, audit, logStatus, protocolLogs, runtimeLogs, dashboard, chain, alerts, protocolMonitor, serviceStatus, scenarioPackages] = await Promise.all([
     api("/api/health"),
     api("/api/protocol"),
     api("/api/scenario"),
@@ -82,7 +104,6 @@ async function bootstrap() {
     api("/api/mission-uploads"),
     api("/api/audit?limit=80"),
     api("/api/logs/status"),
-    api("/api/logs/verify"),
     api("/api/protocol/logs?limit=80&include_heartbeat=false"),
     api("/api/runtime/logs?limit=80"),
     api("/api/dashboard"),
@@ -105,7 +126,7 @@ async function bootstrap() {
   state.missionUploads = missionUploads.payload;
   state.audit = audit.payload;
   state.logStatus = logStatus.payload;
-  state.logIntegrity = logIntegrity.payload;
+  state.logIntegrity = null;
   state.protocolLogs = protocolLogs.payload;
   state.runtimeLogs = runtimeLogs.payload;
   state.dashboard = dashboard.payload;
@@ -531,7 +552,7 @@ function renderLogStorage() {
   node.innerHTML = "";
   const entries = [
     ["이벤트", state.logStatus?.event_count ?? 0],
-    ["무결성", state.logIntegrity?.valid ? "정상" : "확인 필요"],
+    ["무결성", state.logIntegrity == null ? "미조회" : state.logIntegrity?.valid ? "정상" : "이상"],
     ["프로파일", state.logStatus?.profile ?? "-"],
     ["해시", state.logStatus?.last_hash ? state.logStatus.last_hash.slice(0, 12) : "없음"],
   ];
@@ -988,6 +1009,21 @@ async function refreshEdgeDevicesOnly() {
   drawMap();
   renderAssetTable();
   return edgeDevices;
+}
+
+async function deleteEdgeDevice(edgeId) {
+  if (!confirm(`엣지 디바이스 "${edgeId}"를 삭제하시겠습니까?`)) return;
+  try {
+    const resp = await fetch(`/api/edge/devices/${encodeURIComponent(edgeId)}`, { method: "DELETE" });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body?.payload?.error ?? `HTTP ${resp.status}`);
+    }
+    await refreshEdgeDevicesOnly();
+    renderEdgeLiveStatusTable();
+  } catch (e) {
+    alert(`삭제 실패: ${e.message}`);
+  }
 }
 
 async function afterEdgeRegistration(result) {
@@ -1491,7 +1527,7 @@ function renderEdgeLiveStatusTable() {
   }
   node.innerHTML = `
     <table>
-      <thead><tr><th>엣지 ID</th><th>에셋 ID</th><th>유형</th><th>상태</th><th>텔레메트리</th><th>미션</th><th>링크</th><th>위치</th><th>권한</th></tr></thead>
+      <thead><tr><th>엣지 ID</th><th>에셋 ID</th><th>유형</th><th>상태</th><th>텔레메트리</th><th>미션</th><th>링크</th><th>위치</th><th>권한</th><th></th></tr></thead>
       <tbody>
         ${rows.map(({ frame, ...edge }) => `
           <tr>
@@ -1504,6 +1540,7 @@ function renderEdgeLiveStatusTable() {
             <td>${escapeHtml(frame?.link_profile ?? (edge.link_profiles ?? [])[0] ?? "-")}</td>
             <td>${frame ? frame.position.map((v) => Number(v).toFixed(1)).join(", ") : "-"}</td>
             <td>${escapeHtml(edge.authority ?? "-")}</td>
+            <td><button class="edge-delete-btn" onclick="deleteEdgeDevice('${escapeHtml(edge.edge_id)}')" title="엣지 디바이스 삭제">✕</button></td>
           </tr>`).join("")}
       </tbody>
     </table>`;
@@ -1594,7 +1631,7 @@ bindProtocolButton("#protocolPollDronebotButton", "GET UAV 작업 조회", () =>
 bindProtocolButton("#protocolPollUgvButton", "GET UGV 작업 조회", () => pollEdgeWork(edgeIdForAsset("ground-convoy-01")));
 bindProtocolButton("#protocolAckLatestButton", "POST 작업 ACK 전송", ackLatestApprovedWork);
 bindProtocolButton("#protocolVerifyLogsButton", "GET 감사 로그 검증", async () => {
-  const result = await api("/api/logs/verify");
+  const result = await api("/api/logs/verify", 60000);  // 해시체인 검증은 최대 60초 허용
   state.logIntegrity = result.payload;
   renderLogStorage();
   return result;
@@ -1753,7 +1790,7 @@ async function pollIntrusionDetection() {
     }
 
     // 최근 커맨드에서 ATTACKER 요청 탐지
-    const cmds = await api("/api/commands/list").catch(() => null);
+    const cmds = await api("/api/commands").catch(() => null);
     for (const cmd of (cmds?.payload?.commands ?? [])) {
       alerts.push(..._idsCheckCommand(cmd));
     }
