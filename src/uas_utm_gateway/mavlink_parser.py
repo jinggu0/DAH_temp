@@ -8,6 +8,7 @@ from typing import Any
 
 MAVLINK_V1_STX = 0xFE
 MAVLINK_V2_STX = 0xFD
+MAVLINK_IFLAG_SIGNED = 0x01
 
 MESSAGE_NAMES = {
     0: "HEARTBEAT",
@@ -23,6 +24,19 @@ MESSAGE_NAMES = {
     340: "UTM_GLOBAL_POSITION",
 }
 
+CRC_EXTRA = {
+    0: 50,
+    1: 124,
+    33: 104,
+    42: 28,
+    44: 221,
+    47: 153,
+    51: 196,
+    73: 38,
+    76: 152,
+    77: 143,
+}
+
 
 @dataclass(frozen=True)
 class ParsedMavlinkFrame:
@@ -33,6 +47,12 @@ class ParsedMavlinkFrame:
     message_id: int
     message_name: str
     fields: dict[str, Any]
+    payload_len: int = 0
+    frame_len: int = 0
+    signed: bool = False
+    crc_valid: bool | None = None
+    signature_link_id: int | None = None
+    signature_timestamp: int | None = None
 
 
 def parse_datagram(datagram: bytes) -> list[ParsedMavlinkFrame | dict[str, Any]]:
@@ -74,7 +94,11 @@ def _parse_v1(data: bytes, index: int) -> tuple[ParsedMavlinkFrame, int]:
     system_id = data[index + 3]
     component_id = data[index + 4]
     message_id = data[index + 5]
-    payload = data[index + 6 : index + 6 + payload_len]
+    payload_start = index + 6
+    payload_end = payload_start + payload_len
+    payload = data[payload_start:payload_end]
+    actual_crc = struct.unpack_from("<H", data, payload_end)[0]
+    crc_valid = _crc_valid_or_none(message_id, data[index + 1:payload_end], actual_crc)
     return (
         ParsedMavlinkFrame(
             version=1,
@@ -84,6 +108,10 @@ def _parse_v1(data: bytes, index: int) -> tuple[ParsedMavlinkFrame, int]:
             message_id=message_id,
             message_name=MESSAGE_NAMES.get(message_id, f"MSG_{message_id}"),
             fields=_parse_payload(message_id, payload),
+            payload_len=payload_len,
+            frame_len=frame_len,
+            signed=False,
+            crc_valid=crc_valid,
         ),
         index + frame_len,
     )
@@ -98,11 +126,21 @@ def _parse_v2(data: bytes, index: int) -> tuple[ParsedMavlinkFrame, int]:
     system_id = data[index + 5]
     component_id = data[index + 6]
     message_id = data[index + 7] | (data[index + 8] << 8) | (data[index + 9] << 16)
-    signature_len = 13 if incompat_flags & 0x01 else 0
+    signature_len = 13 if incompat_flags & MAVLINK_IFLAG_SIGNED else 0
     frame_len = 10 + payload_len + 2 + signature_len
     if index + frame_len > len(data):
         raise ValueError("truncated MAVLink v2 frame")
-    payload = data[index + 10 : index + 10 + payload_len]
+    payload_start = index + 10
+    payload_end = payload_start + payload_len
+    payload = data[payload_start:payload_end]
+    actual_crc = struct.unpack_from("<H", data, payload_end)[0]
+    crc_valid = _crc_valid_or_none(message_id, data[index + 1:payload_end], actual_crc)
+    signature_link_id = None
+    signature_timestamp = None
+    if signature_len:
+        sig_start = payload_end + 2
+        signature_link_id = data[sig_start]
+        signature_timestamp = int.from_bytes(data[sig_start + 1:sig_start + 7], "little")
     return (
         ParsedMavlinkFrame(
             version=2,
@@ -112,9 +150,31 @@ def _parse_v2(data: bytes, index: int) -> tuple[ParsedMavlinkFrame, int]:
             message_id=message_id,
             message_name=MESSAGE_NAMES.get(message_id, f"MSG_{message_id}"),
             fields=_parse_payload(message_id, payload),
+            payload_len=payload_len,
+            frame_len=frame_len,
+            signed=bool(signature_len),
+            crc_valid=crc_valid,
+            signature_link_id=signature_link_id,
+            signature_timestamp=signature_timestamp,
         ),
         index + frame_len,
     )
+
+
+def _crc_valid_or_none(message_id: int, crc_input: bytes, actual_crc: int) -> bool | None:
+    if message_id not in CRC_EXTRA:
+        return None
+    expected = x25_checksum(crc_input + bytes([CRC_EXTRA[message_id]]))
+    return expected == actual_crc
+
+
+def x25_checksum(data: bytes) -> int:
+    crc = 0xFFFF
+    for byte in data:
+        tmp = byte ^ (crc & 0xFF)
+        tmp = (tmp ^ (tmp << 4)) & 0xFF
+        crc = ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+    return crc
 
 
 def _parse_payload(message_id: int, payload: bytes) -> dict[str, Any]:
@@ -126,10 +186,16 @@ def _parse_payload(message_id: int, payload: bytes) -> dict[str, Any]:
         return _parse_global_position_int(payload)
     if message_id == 42:
         return _parse_mission_current(payload)
+    if message_id == 44:
+        return _parse_mission_count(payload)
     if message_id == 47:
         return _parse_mission_ack(payload)
     if message_id == 51:
         return _parse_mission_request_int(payload)
+    if message_id == 73:
+        return _parse_mission_item_int(payload)
+    if message_id == 76:
+        return _parse_command_long(payload)
     if message_id == 77:
         return _parse_command_ack(payload)
     if message_id == 340:
@@ -188,6 +254,13 @@ def _parse_mission_current(payload: bytes) -> dict[str, Any]:
     return {"seq": seq}
 
 
+def _parse_mission_count(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 4:
+        raise ValueError("MISSION_COUNT payload too short")
+    count, target_system, target_component, mission_type = struct.unpack_from("<HBB", payload) + (payload[4] if len(payload) >= 5 else 0,)
+    return {"count": count, "target_system": target_system, "target_component": target_component, "mission_type": mission_type}
+
+
 def _parse_utm_global_position(payload: bytes) -> dict[str, Any]:
     if len(payload) < 44:
         raise ValueError("UTM_GLOBAL_POSITION payload too short")
@@ -203,11 +276,26 @@ def _parse_utm_global_position(payload: bytes) -> dict[str, Any]:
         "vz": vz,
     }
 
+
 def _parse_command_ack(payload: bytes) -> dict[str, Any]:
     if len(payload) < 3:
         raise ValueError("COMMAND_ACK payload too short")
     command, result = struct.unpack_from("<HB", payload)
     return {"command": command, "result": result}
+
+
+def _parse_command_long(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 33:
+        raise ValueError("COMMAND_LONG payload too short")
+    unpacked = struct.unpack_from("<fffffffHBBB", payload)
+    return {
+        "params": list(unpacked[:7]),
+        "command": unpacked[7],
+        "target_system": unpacked[8],
+        "target_component": unpacked[9],
+        "confirmation": unpacked[10],
+    }
+
 
 def _parse_mission_request_int(payload: bytes) -> dict[str, Any]:
     if len(payload) < 4:
@@ -223,3 +311,23 @@ def _parse_mission_ack(payload: bytes) -> dict[str, Any]:
     target_system, target_component, ack_type = struct.unpack_from("<BBB", payload)
     mission_type = struct.unpack_from("<B", payload, 3)[0] if len(payload) >= 4 else 0
     return {"target_system": target_system, "target_component": target_component, "type": ack_type, "mission_type": mission_type}
+
+
+def _parse_mission_item_int(payload: bytes) -> dict[str, Any]:
+    if len(payload) < 38:
+        raise ValueError("MISSION_ITEM_INT payload too short")
+    values = struct.unpack_from("<ffffiifHHBBBBBB", payload)
+    return {
+        "params": list(values[:4]),
+        "x": values[4],
+        "y": values[5],
+        "z": values[6],
+        "seq": values[7],
+        "command": values[8],
+        "target_system": values[9],
+        "target_component": values[10],
+        "frame": values[11],
+        "current": values[12],
+        "autocontinue": values[13],
+        "mission_type": values[14],
+    }

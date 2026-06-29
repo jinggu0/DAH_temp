@@ -20,7 +20,10 @@ MESSAGE_IDS = {
 }
 
 CRC_EXTRA = {
+    0: 50,    # HEARTBEAT, common.xml
+    1: 124,   # SYS_STATUS, common.xml
     33: 104,  # GLOBAL_POSITION_INT, common.xml
+    42: 28,   # MISSION_CURRENT, common.xml
     44: 221,  # MISSION_COUNT, common.xml
     47: 153,  # MISSION_ACK, common.xml
     51: 196,  # MISSION_REQUEST_INT, common.xml
