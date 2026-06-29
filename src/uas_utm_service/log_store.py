@@ -83,18 +83,19 @@ class JsonlAuditStore:
         return row
 
     def tail(self, *, limit: int = 100, event_type: str | None = None) -> list[dict[str, Any]]:
-        rows = self._read_rows()
+        limit = max(1, limit)
         if event_type:
+            rows = self._read_rows()
             rows = [row for row in rows if row.get("event_type") == event_type]
-        return rows[-max(1, limit) :]
+            return rows[-limit:]
+        return self._read_tail_rows(limit)
 
     def status(self) -> dict[str, Any]:
-        rows = self._read_rows()
         return {
             "profile": SCHEMA_VERSION,
             "storage_root": str(self.root_dir),
             "current_file": str(self.current_path),
-            "event_count": len(rows),
+            "event_count": self._count_rows(),
             "last_hash": self._last_hash,
             "policy": self.policy(),
         }
@@ -147,8 +148,34 @@ class JsonlAuditStore:
                 rows.append(json.loads(line))
         return rows
 
+    def _read_tail_rows(self, limit: int) -> list[dict[str, Any]]:
+        if not self.current_path.exists():
+            return []
+        limit = max(1, limit)
+        chunk_size = 8192
+        data = b""
+        with self.current_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            position = handle.tell()
+            while position > 0 and data.count(b"\n") <= limit:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                handle.seek(position)
+                data = handle.read(read_size) + data
+        lines = [line.strip() for line in data.splitlines() if line.strip()]
+        return [json.loads(line.decode("utf-8")) for line in lines[-limit:]]
+
+    def _count_rows(self) -> int:
+        if not self.current_path.exists():
+            return 0
+        count = 0
+        with self.current_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                count += chunk.count(b"\n")
+        return count
+
     def _load_last_hash(self) -> str | None:
-        rows = self._read_rows()
+        rows = self._read_tail_rows(1)
         if not rows:
             return None
         integrity = rows[-1].get("integrity", {})

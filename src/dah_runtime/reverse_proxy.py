@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import socket
 from http import HTTPStatus
+from http.client import RemoteDisconnected
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
@@ -16,10 +18,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--target", required=True, help="Target base URL, for example http://dah-gcs:8080")
+    parser.add_argument("--timeout-s", type=float, default=30.0, help="Upstream request timeout in seconds")
     args = parser.parse_args(argv)
 
     target = args.target.rstrip("/") + "/"
-    handler_class = _make_handler(target)
+    handler_class = _make_handler(target, args.timeout_s)
     server = ThreadingHTTPServer((args.host, args.port), handler_class)
     print(f"DAH reverse proxy listening on http://{args.host}:{args.port} -> {target}")
     try:
@@ -31,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _make_handler(target: str) -> type[BaseHTTPRequestHandler]:
+def _make_handler(target: str, timeout_s: float = 30.0) -> type[BaseHTTPRequestHandler]:
     class ProxyHandler(BaseHTTPRequestHandler):
         server_version = "DahReverseProxy/0.1"
 
@@ -56,7 +59,7 @@ def _make_handler(target: str) -> type[BaseHTTPRequestHandler]:
             headers = {key: value for key, value in self.headers.items() if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "host"}
             request = Request(url, data=body, method=self.command, headers=headers)
             try:
-                with urlopen(request, timeout=30) as response:
+                with urlopen(request, timeout=timeout_s) as response:
                     response_body = response.read()
                     self.send_response(response.status)
                     for key, value in response.headers.items():
@@ -71,13 +74,27 @@ def _make_handler(target: str) -> type[BaseHTTPRequestHandler]:
                 self.send_header("Content-Length", str(len(response_body)))
                 self.end_headers()
                 self.wfile.write(response_body)
+            except (TimeoutError, socket.timeout) as exc:
+                self._send_proxy_error(HTTPStatus.GATEWAY_TIMEOUT, "upstream_timeout", exc)
+            except RemoteDisconnected as exc:
+                self._send_proxy_error(HTTPStatus.BAD_GATEWAY, "upstream_disconnected", exc)
             except URLError as exc:
-                response_body = f"upstream_unavailable: {exc}".encode("utf-8")
-                self.send_response(HTTPStatus.BAD_GATEWAY)
+                reason = exc.reason if hasattr(exc, "reason") else exc
+                if isinstance(reason, (TimeoutError, socket.timeout)):
+                    self._send_proxy_error(HTTPStatus.GATEWAY_TIMEOUT, "upstream_timeout", reason)
+                else:
+                    self._send_proxy_error(HTTPStatus.BAD_GATEWAY, "upstream_unavailable", exc)
+
+        def _send_proxy_error(self, status: HTTPStatus, code: str, exc: BaseException) -> None:
+            response_body = f"{code}: {exc}".encode("utf-8", errors="replace")
+            try:
+                self.send_response(status)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Content-Length", str(len(response_body)))
                 self.end_headers()
                 self.wfile.write(response_body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def log_message(self, format: str, *args: object) -> None:
             print(f"{self.address_string()} - {format % args}")

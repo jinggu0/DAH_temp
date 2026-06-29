@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .mavlink_broadcaster import MavlinkBroadcaster
 from .protocol import envelope, protocol_profile
 from .state import ServiceState
 
@@ -22,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     state = ServiceState(Path(args.scenario), log_dir=Path(args.log_dir))
+    MavlinkBroadcaster(state).start()
     handler_class = _make_handler(state)
     server = ThreadingHTTPServer((args.host, args.port), handler_class)
     print(f"UAS/UTM service listening on http://{args.host}:{args.port}")
@@ -282,12 +284,15 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
 
         def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
 
         def _send_file(self, path: Path) -> None:
             try:
@@ -302,11 +307,14 @@ def _make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 )
                 return
             content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
 
     return UasUtmHandler
 

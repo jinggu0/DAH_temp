@@ -12,6 +12,8 @@ services:
       - "9000"
       - --target
       - http://dah-dashboard:8080
+      - --timeout-s
+      - "35"
     ports:
       - "9000:9000"
     depends_on:
@@ -273,6 +275,33 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
 
+
+  # ── 시나리오 11: Passive MAVLink Recon ──────────────────────────────────────
+  dah-attack-passive-mavlink:
+    profiles: ["cyber-attack"]
+    build: .
+    container_name: dah-attack-passive-mavlink
+    command:
+      - python
+      - -m
+      - dah_attacks.passive_mavlink_recon
+      - --listen-host
+      - "0.0.0.0"
+      - --listen-port
+      - "14549"
+      - --duration-s
+      - "120"
+      - --output
+      - /app/output/passive_mavlink_intel.json
+    depends_on:
+      dah-gcs:
+        condition: service_healthy
+    networks:
+      - dah-asset-net   # GCS 브로드캐스트(14549)를 수신하기 위해 동일 네트워크
+    volumes:
+      - ./output:/app/output
+    environment:
+      PYTHONUNBUFFERED: "1"
 
 networks:
   dah-asset-net:
